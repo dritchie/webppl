@@ -1,0 +1,6 @@
+glyph_2_0.png
+glyph_2_46.png
+glyph_3_27.png
+glyph_5_1.png
+glyph_6_45.png
+glyph_7_54.png

@@ -8,7 +8,8 @@ compiled/webppl.min.js
 
 # Variational stuff
 *.ad
-variational_experiments/lsystem/targets/datasets/*
+variational_experiments/lsystem/targets/datasets/*/*.png
+variational_experiments/lsystem/targets/datasets/*/*.txt
 !variational_experiments/lsystem/targets/datasets/*/images.txt
 variational_experiments/lsystem/analysis/*
 variational_experiments/lsystem/gen_traces/*
