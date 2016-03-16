@@ -2,9 +2,9 @@
 
 var _ = require('underscore');
 var assert = require('assert');
-var erp = require('../erp');
-var util = require('../util');
-var ad = require('../ad');
+var erp = require('../../erp');
+var util = require('../../util');
+var ad = require('../../ad');
 
 module.exports = function(env) {
 
@@ -191,8 +191,8 @@ module.exports = function(env) {
     return score;
   };
 
-  return function(cont, runWppl, oldTrace, options) {
-    return new MHKernel(cont, runWppl, oldTrace, options).run();
+  return function(cont, oldTrace, options) {
+    return new MHKernel(cont, oldTrace, options).run();
   };
 
 };

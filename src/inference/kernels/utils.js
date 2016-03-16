@@ -2,28 +2,16 @@
 
 var assert = require('assert');
 var _ = require('underscore');
-var util = require('../util');
+var util = require('../../util');
 
 module.exports = function(env) {
 
-  var MHKernel = require('./mhkernel')(env);
-  var HMCKernel = require('./hmckernel')(env);
+  var kernels = {};
 
-  function HMCwithMHKernel(cont, oldTrace, options) {
-    // The options arg is passed to both kernels as SMC passes
-    // exitFactor via options.
-    return HMCKernel(function(trace) {
-      var opts = _.extendOwn({ discreteOnly: true, adRequired: true }, options);
-      return MHKernel(cont, trace, opts);
-    }, oldTrace, options);
-  }
-
-  HMCwithMHKernel.adRequired = true;
-
-  var kernels = {
-    MH: MHKernel,
-    HMC: HMCwithMHKernel,
-    HMConly: HMCKernel
+  // Register a kernel function with a given name
+  function registerKernel(name, kernelfn) {
+    assert(!_.has(kernels, name), 'kernel named ' + name + ' has already been registered.');
+    kernels[name] = kernelfn;
   };
 
   // Takes an options object (as passed to inference algorithms) and
@@ -89,6 +77,7 @@ module.exports = function(env) {
   }
 
   return {
+    registerKernel: registerKernel,
     parseOptions: parseOptions,
     tap: tap,
     sequence: sequence,
