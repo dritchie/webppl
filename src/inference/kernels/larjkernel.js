@@ -11,13 +11,12 @@ var ad = require('../../ad');
 //       acceptance ratio?
 
 // Trace methods used by MH / HMC:
-//  - uptoAndIncluding
 //  - saveContinuation
 //  - continue
-function InterpolationTrace(trace1, trace2) {
+function InterpolationTrace(trace1, trace2, alpha) {
   this.trace1 = trace1;
   this.trace2 = trace2;
-  this.alpha = 0;
+  this.alpha = (alpha === undefined) ? 0 : alpha;
 
   // Build merged list of choices
 
@@ -77,9 +76,7 @@ Object.defineProperty(InterpolationTrace.prototype, 'length', {
 InterpolationTrace.prototype.fresh = function() {
   var t1 = this.trace1.fresh();
   var t2 = this.trace2.fresh();
-  var it = new InterpolationTrace(t1, t2);
-  it.alpha = this.alpha;
-  return it;
+  return new InterpolationTrace(t1, t2, this.alpha);
 };
 
 InterpolationTrace.prototype.choiceAtIndex = function(i) {
@@ -90,13 +87,51 @@ InterpolationTrace.prototype.findChoice = function(address) {
   return this.trace1.findChoice(address) || this.trace2.findChoice(address);
 };
 
+InterpolationTrace.prototype.saveContinuation = function(s, k) {
+  this.store = s;
+  this.k = k;
+};
+
 InterpolationTrace.prototype.complete = function(val) {
   this.trace1.complete(val);
   this.trace2.complete(val);
+  this.store = undefined;
+  this.k = undefined;
 };
 
 InterpolationTrace.prototype.isComplete = function() {
   return this.trace1.isComplete() && this.trace2.isComplete();
+};
+
+InterpolationTrace.prototype.upToAndIncluding = function(i) {
+  var t1 = this.__upToAndIncluding(i, this.trace1);
+  var t2 = this.__upToAndIncluding(i, this.trace2);
+  return new InterpolationTrace(t1, t2, this.alpha);
+};
+InterpolationTrace.prototype.__upToAndIncluding = function(i, trace) {
+  var address = this.choices[i].address;
+  var t;
+  var c = trace.findChoice(address);
+  // If trace has this choice, take everything up to and including it
+  if (c !== undefined) {
+    t = trace.upToAndIncluding(c.index);
+  } else {
+    // Find next choice that trace does have, take everything up to that
+    for (; i < this.choices.length; i++) {
+      c = trace.findChoice(this.choices[i].address);
+      if (c !== undefined) break;
+    }
+    if (c !== undefined) {
+      t = trace.upto(c.index);
+    } else {
+      // If no such choice, then take the whole trace
+      t = trace.upToAndIncluding(trace.length - 1);
+      // TODO: This trace actually doesn't need to be re-run at all when we propose
+      //    a change to the choice at index i. Can we achieve this by marking this
+      //    trace somehow? (And maybe use trace.copy() instead?)
+    }
+  }
+  return t;
 };
 
 
