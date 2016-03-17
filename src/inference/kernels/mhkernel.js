@@ -37,7 +37,7 @@ module.exports = function(env) {
   MHKernel.prototype.run = function() {
     this.regenFrom = this.sampleRegenChoice(this.oldTrace);
     if (this.regenFrom < 0) {
-      return this.finish(this.oldTrace, true);
+      return this.bail(true);
     }
     env.query.clear();
 
@@ -50,7 +50,7 @@ module.exports = function(env) {
 
     // Optimization: Bail early if same value is re-sampled.
     if (!proposalErp.isContinuous && regen.val === val) {
-      return this.finish(this.oldTrace, true);
+      return this.bail(true);
     }
 
     this.trace = this.oldTrace.upToAndIncluding(this.regenFrom);
@@ -58,7 +58,7 @@ module.exports = function(env) {
 
     // Optimization: Bail early if probability went to zero
     if (ad.untapify(this.trace.score) === -Infinity) {
-      return this.finish(this.oldTrace, false);
+      return this.bail(false);
     }
 
     // Else, continue running program
@@ -68,13 +68,13 @@ module.exports = function(env) {
   MHKernel.prototype.factor = function(s, k, a, score) {
     // Optimization: Bail early if we know acceptProb will be zero.
     if (ad.untapify(score) === -Infinity) {
-      return this.finish(this.oldTrace, false);
+      return this.bail(false);
     }
     this.trace.numFactors += 1;
     this.trace.score = ad.add(this.trace.score, score);
     if (this.trace.numFactors === this.exitFactor) {
       this.trace.saveContinuation(s, k);
-      return this.exit(s, undefined, true);
+      return this.earlyExit(s);
     }
     return k(s);
   };
@@ -94,12 +94,25 @@ module.exports = function(env) {
     this.trace.addChoice(erp, params, val, a, s, k);
     // Bail early if probability went to zero
     if (ad.untapify(this.trace.score) === -Infinity) {
-      return this.finish(this.oldTrace, false);
+      return this.bail(false);
     }
     return k(s, val);
   };
 
-  MHKernel.prototype.exit = function(s, val, earlyExit) {
+  MHKernel.prototype.bail = function(accept) {
+    return env.exit(undefined, undefined, undefined, accept);
+  };
+
+  MHKernel.prototype.earlyExit = function(s) {
+    return env.exit(s, undefined, true);
+  };
+
+  // IMPORTANT: This is never called directly. Only called via env.exit
+  // (This is needed for LARJ to work correctly)
+  MHKernel.prototype.exit = function(s, val, earlyExit, bailAccept) {
+    if (bailAccept !== undefined) {
+      return this.finish(this.oldTrace, bailAccept);
+    } 
     if (!earlyExit) {
       if (val === env.query)
         val = _.extendOwn({}, this.oldTrace.value, env.query.getTable());
@@ -112,6 +125,8 @@ module.exports = function(env) {
     return this.finish(accept ? this.trace : this.oldTrace, accept);
   };
 
+  // IMPORTANT: This is also never called directly. Only called from within
+  //    this.exit.
   MHKernel.prototype.finish = function(trace, accepted) {
     assert(_.isBoolean(accepted));
     if (this.oldTrace.info) {

@@ -81,7 +81,7 @@ module.exports = function(env) {
 
     if (this.trace.numFactors === this.exitFactor) {
       this.trace.saveContinuation(s, k);
-      return this.exit(s, undefined, true);
+      return this.earlyExit(s);
     }
 
     return k(s);
@@ -153,7 +153,11 @@ module.exports = function(env) {
     return this.trace.continue();
   };
 
-  HMCKernel.prototype.exit = function(k, val, earlyExit) {
+  HMCKernel.prototype.earlyExit = function(s) {
+    return env.exit(s, undefined, true);
+  };
+
+  HMCKernel.prototype.exit = function(s, val, earlyExit) {
     if (!earlyExit) {
       if (val === env.query)
         val = env.query.getTable();
@@ -164,6 +168,19 @@ module.exports = function(env) {
     var cont = this.positionStepCont;
     this.thisPositionStepCont = undefined;
     return cont(this.trace);
+  };
+
+  HMCKernel.prototype.finish = function(trace, accepted) {
+    assert(_.isBoolean(accepted));
+    if (this.oldTrace.info) {
+      var oldInfo = this.oldTrace.info;
+      trace.info = {
+        accepted: oldInfo.accepted + accepted,
+        total: oldInfo.total + 1
+      };
+    }
+    env.coroutine = this.coroutine;
+    return this.cont(trace);
   };
 
   HMCKernel.prototype.momentumStep = function(trace, scaleFactor) {
@@ -182,19 +199,6 @@ module.exports = function(env) {
     var kinetic = 0.5 * _.reduce(momentum, function(memo, p) { return memo + p * p; }, 0);
     return score - kinetic;
   }
-
-  HMCKernel.prototype.finish = function(trace, accepted) {
-    assert(_.isBoolean(accepted));
-    if (this.oldTrace.info) {
-      var oldInfo = this.oldTrace.info;
-      trace.info = {
-        accepted: oldInfo.accepted + accepted,
-        total: oldInfo.total + 1
-      };
-    }
-    env.coroutine = this.coroutine;
-    return this.cont(trace);
-  };
 
   HMCKernel.prototype.incrementalize = env.defaultCoroutine.incrementalize;
 

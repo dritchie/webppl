@@ -94,8 +94,8 @@ module.exports = function(env) {
     }
   };
 
-  env.exit = function(s, retval) {
-    return env.coroutine.exit(s, retval);
+  env.exit = function() {
+    return env.coroutine.exit.apply(env.coroutine, arguments);
   };
 
   env.incrementalize = function(s, k, a, fn, args) {
