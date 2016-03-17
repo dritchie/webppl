@@ -155,6 +155,8 @@ module.exports = function(env) {
 
   HMCKernel.prototype.exit = function(k, val, earlyExit) {
     if (!earlyExit) {
+      if (val === env.query)
+        val = env.query.getTable();
       this.trace.complete(val);
     } else {
       assert(this.trace.store);
@@ -185,9 +187,6 @@ module.exports = function(env) {
 
   HMCKernel.prototype.finish = function(trace, accepted) {
     assert(_.isBoolean(accepted));
-    if (accepted && trace.value === env.query) {
-      trace.value = env.query.getTable();
-    }
     if (this.oldTrace.info) {
       var oldInfo = this.oldTrace.info;
       trace.info = {

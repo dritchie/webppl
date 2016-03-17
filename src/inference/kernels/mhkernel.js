@@ -60,7 +60,7 @@ module.exports = function(env) {
     if (ad.untapify(this.trace.score) === -Infinity) {
       return this.finish(this.oldTrace, false);
     }
-    
+
     // Else, continue running program
     return regen.k(_.clone(regen.store), val);
   };
@@ -101,6 +101,8 @@ module.exports = function(env) {
 
   MHKernel.prototype.exit = function(s, val, earlyExit) {
     if (!earlyExit) {
+      if (val === env.query)
+        val = _.extendOwn({}, this.oldTrace.value, env.query.getTable());
       this.trace.complete(val);
     } else {
       assert(this.trace.store);
@@ -114,9 +116,6 @@ module.exports = function(env) {
 
   MHKernel.prototype.finish = function(trace, accepted) {
     assert(_.isBoolean(accepted));
-    if (accepted && trace.value === env.query) {
-      trace.value = _.extendOwn({}, this.oldTrace.value, env.query.getTable());
-    }
     if (this.oldTrace.info) {
       var oldInfo = this.oldTrace.info;
       trace.info = {
