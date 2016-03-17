@@ -70,7 +70,8 @@ Trace.prototype.addChoice = function(erp, params, val, address, store, continuat
     score: this.score,
     val: val,
     store: _.clone(store),
-    numFactors: this.numFactors
+    numFactors: this.numFactors,
+    index: this.length
   };
 
   this.choices.push(choice);
@@ -78,6 +79,31 @@ Trace.prototype.addChoice = function(erp, params, val, address, store, continuat
   this.length += 1;
   this.score = ad.add(this.score, erp.score(params, val));
   // this.checkConsistency();
+};
+
+// Used by MH proposals
+// Had to introduce this abstraction to make LARJ work
+Trace.prototype.setChoiceValue = function(address, val) {
+  var choice = this.findChoice(address);
+  assert(choice !== undefined);
+
+  var newchoice = {
+    k: choice.k,
+    address: choice.address,
+    erp: choice.erp,
+    params: choice.params,
+    score: choice.score,
+    val: val, // new val
+    store: _.clone(choice.store),
+    numFactors: choice.numFactors,
+    index: choice.index
+  };
+  this.choices[newchoice.index] = newchoice;
+  this.addressMap[newchoice.address] = newchoice;
+
+  // Works since choice.score is the trace score *before* adding the choice
+  var choiceScore = choice.erp.score(newchoice.params, val);
+  this.score = ad.add(newchoice.score, choiceScore);
 };
 
 Trace.prototype.complete = function(value) {
@@ -104,6 +130,14 @@ Trace.prototype.upto = function(i) {
   t.score = this.choices[i].score;
   t.numFactors = this.choices[i].numFactors;
   // t.checkConsistency();
+  return t;
+};
+
+// Also for MH proposals
+Trace.prototype.upToAndIncluding = function(i) {
+  var t = this.upto(i);
+  var c = this.choices[i];
+  t.addChoice(c.erp, c.params, c.val, c.address, c.store, c.k);
   return t;
 };
 

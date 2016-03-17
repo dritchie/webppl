@@ -40,9 +40,29 @@ module.exports = function(env) {
       return this.finish(this.oldTrace, true);
     }
     env.query.clear();
-    this.trace = this.oldTrace.upto(this.regenFrom);
+
     var regen = this.oldTrace.choiceAtIndex(this.regenFrom);
-    return this.sample(_.clone(regen.store), regen.k, regen.address, regen.erp, regen.params, true);
+    var erp = regen.erp;
+    var proposalErp = erp.proposer || erp;
+    var proposalParams = erp.proposer ? [regen.params, regen.val] : regen.params;
+    var _val = proposalErp.sample(ad.untapify(proposalParams));
+    var val = this.adRequired && proposalErp.isContinuous ? ad.tapify(_val) : _val;
+
+    // Optimization: Bail early if same value is re-sampled.
+    if (!proposalErp.isContinuous && regen.val === val) {
+      return this.finish(this.oldTrace, true);
+    }
+
+    this.trace = this.oldTrace.upToAndIncluding(this.regenFrom);
+    this.trace.setChoiceValue(regen.address, val);
+
+    // Optimization: Bail early if probability went to zero
+    if (ad.untapify(this.trace.score) === -Infinity) {
+      return this.finish(this.oldTrace, false);
+    }
+    
+    // Else, continue running program
+    return regen.k(_.clone(regen.store), val);
   };
 
   MHKernel.prototype.factor = function(s, k, a, score) {
@@ -59,31 +79,20 @@ module.exports = function(env) {
     return k(s);
   };
 
-  MHKernel.prototype.sample = function(s, k, a, erp, params, forceSample) {
+  MHKernel.prototype.sample = function(s, k, a, erp, params) {
     var _val, val;
     var prevChoice = this.oldTrace.findChoice(a);
 
-    if (forceSample) {
-      assert(prevChoice);
-      var proposalErp = erp.proposer || erp;
-      var proposalParams = erp.proposer ? [params, prevChoice.val] : params;
-      _val = proposalErp.sample(ad.untapify(proposalParams));
-      val = this.adRequired && proposalErp.isContinuous ? ad.tapify(_val) : _val;
-      // Optimization: Bail early if same value is re-sampled.
-      if (!proposalErp.isContinuous && prevChoice.val === val) {
-        return this.finish(this.oldTrace, true);
-      }
+    if (prevChoice) {
+      val = prevChoice.val; // Will be a tape if continuous.
+      this.reused[a] = true;
     } else {
-      if (prevChoice) {
-        val = prevChoice.val; // Will be a tape if continuous.
-        this.reused[a] = true;
-      } else {
-        _val = erp.sample(ad.untapify(params));
-        val = this.adRequired && erp.isContinuous ? ad.tapify(_val) : _val;
-      }
+      _val = erp.sample(ad.untapify(params));
+      val = this.adRequired && erp.isContinuous ? ad.tapify(_val) : _val;
     }
 
     this.trace.addChoice(erp, params, val, a, s, k);
+    // Bail early if probability went to zero
     if (ad.untapify(this.trace.score) === -Infinity) {
       return this.finish(this.oldTrace, false);
     }
