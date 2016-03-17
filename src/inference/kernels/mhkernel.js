@@ -105,8 +105,6 @@ module.exports = function(env) {
         val = _.extendOwn({}, this.oldTrace.value, env.query.getTable());
       this.trace.complete(val);
     } else {
-      assert(this.trace.store);
-      assert(this.trace.k);
       assert(!this.trace.isComplete());
     }
     var prob = this.acceptProb(this.trace, this.oldTrace);
