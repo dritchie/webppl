@@ -15,11 +15,20 @@ var Trace = function(wpplFn, s, k, a) {
 
   this.choices = [];
   this.addressMap = {}; // Maps addresses => choices.
-  this.length = 0;
+
+  // ** These are the ONLY publically-accessible read/write properties **
   this.score = 0;
   this.numFactors = 0; // The number of factors encountered so far.
+
   // this.checkConsistency();
 };
+
+// Length of the trace is a read-only property which just returns choices.length
+Object.defineProperty(Trace.prototype, 'length', {
+  get: function() {
+    return this.choices.length;
+  }
+});
 
 Trace.prototype.fresh = function() {
   // Create a new trace using wpplFn etc. from this Trace.
@@ -76,7 +85,6 @@ Trace.prototype.addChoice = function(erp, params, val, address, store, continuat
 
   this.choices.push(choice);
   this.addressMap[address] = choice;
-  this.length += 1;
   this.score = ad.add(this.score, erp.score(params, val));
   // this.checkConsistency();
 };
@@ -126,7 +134,6 @@ Trace.prototype.upto = function(i) {
   var t = this.fresh();
   t.choices = this.choices.slice(0, i);
   t.choices.forEach(function(choice) { t.addressMap[choice.address] = choice; });
-  t.length = t.choices.length;
   t.score = this.choices[i].score;
   t.numFactors = this.choices[i].numFactors;
   // t.checkConsistency();
@@ -145,7 +152,6 @@ Trace.prototype.copy = function() {
   var t = this.fresh();
   t.choices = this.choices.slice(0);
   t.addressMap = _.clone(this.addressMap);
-  t.length = this.length;
   t.score = this.score;
   t.k = this.k;
   t.store = _.clone(this.store);
@@ -162,7 +168,6 @@ Trace.prototype.checkConsistency = function() {
   assert(this.initialStore);
   assert(this.baseAddress);
   assert(this.k && this.store || !this.k && !this.store);
-  assert(this.choices.length === this.length);
   assert(_.keys(this.addressMap).length === this.length);
   this.choices.forEach(function(choice) {
     assert(_.has(this.addressMap, choice.address));
