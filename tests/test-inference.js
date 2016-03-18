@@ -335,6 +335,22 @@ var tests = [
     }
   },
   {
+    name: 'MHcontinuousOnly',
+    func: 'MCMC',
+    settings: {
+      hist: { tol: 0.1 },
+      MAP: { tol: 0.1, check: true},
+      args: {samples: 5000, kernel: { MH: { continuousOnly: true }}}
+    },
+    models: {
+      drift: {
+        mean: { tol: 0.3 },
+        std: { tol: 0.3 },
+        args: { samples: 80000, burn: 20000, kernel: { MH: { continuousOnly: true } } }
+      }
+    }
+  },
+  {
     name: 'HMC',
     func: 'MCMC',
     settings: {

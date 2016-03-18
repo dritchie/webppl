@@ -14,6 +14,7 @@ module.exports = function(env) {
       exitFactor: 0,
       permissive: false,
       discreteOnly: false,
+      continuousOnly: false,
       adRequired: false
     });
 
@@ -28,6 +29,7 @@ module.exports = function(env) {
     this.proposalBoundary = options.proposalBoundary;
     this.exitFactor = options.exitFactor;
     this.discreteOnly = options.discreteOnly;
+    this.continuousOnly = options.continuousOnly;
     this.adRequired = options.adRequired;
 
     this.coroutine = env.coroutine;
@@ -148,22 +150,39 @@ module.exports = function(env) {
     });
   };
 
+  MHKernel.prototype.proposableContinuousErpIndices = function(trace) {
+    return _.range(this.proposalBoundary, trace.length).filter(function(i) {
+      return trace.choices[i].erp.isContinuous;
+    });
+  };
+
   MHKernel.prototype.numRegenChoices = function(trace) {
     if (this.discreteOnly) {
       return this.proposableDiscreteErpIndices(trace).length;
-    } else {
-      return trace.length - this.proposalBoundary;
     }
+    if (this.continuousOnly) {
+      return this.proposableContinuousErpIndices(trace).length;
+    }
+    return trace.length - this.proposalBoundary;
   };
 
   MHKernel.prototype.sampleRegenChoice = function(trace) {
-    return this.discreteOnly ?
-        this.sampleRegenChoiceDiscrete(trace) :
-        this.sampleRegenChoiceAny(trace);
+    if (this.discreteOnly) {
+      return this.sampleRegenChoiceDiscrete(trace);
+    }
+    if (this.continuousOnly) {
+      return this.sampleRegenChoiceContinuous(trace);
+    }
+    return this.sampleRegenChoiceAny(trace);
   };
 
   MHKernel.prototype.sampleRegenChoiceDiscrete = function(trace) {
     var indices = this.proposableDiscreteErpIndices(trace);
+    return indices.length > 0 ? indices[Math.floor(util.random() * indices.length)] : -1;
+  };
+
+  MHKernel.prototype.sampleRegenChoiceContinuous = function(trace) {
+    var indices = this.proposableContinuousErpIndices(trace);
     return indices.length > 0 ? indices[Math.floor(util.random() * indices.length)] : -1;
   };
 
