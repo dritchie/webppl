@@ -63,8 +63,15 @@ module.exports = function(env) {
       return this.bail(false);
     }
 
-    // Else, continue running program
-    return regen.k(_.clone(regen.store), val);
+    // Else, continue running program by running from the last choice in the trace
+    // (This is pretty roundabout compared to just calling regen.k, but it is
+    //    needed to make LARJ work).
+    this.trace.saveContinuation(regen.store, function(s) {
+      var lastChoice = this.trace.choiceAtIndex(this.trace.length - 1);
+      return lastChoice.k(_.clone(lastChoice.store), lastChoice.val);
+    }.bind(this));
+    return this.trace.continue();
+    // return regen.k(_.clone(regen.store), val);
   };
 
   MHKernel.prototype.factor = function(s, k, a, score) {
