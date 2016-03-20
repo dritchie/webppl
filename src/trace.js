@@ -148,17 +148,21 @@ Trace.prototype.upToAndIncluding = function(i) {
   return t;
 };
 
+Trace.prototype.copyFrom = function(other) {
+  this.choices = other.choices.slice(0);
+  this.addressMap = _.clone(other.addressMap);
+  this.score = other.score;
+  this.k = other.k;
+  this.store = _.clone(other.store);
+  this.baseAddress = other.baseAddress;
+  this.value = other.value;
+  this.numFactors = other.numFactors;
+  // this.checkConsistency();
+};
+
 Trace.prototype.copy = function() {
   var t = this.fresh();
-  t.choices = this.choices.slice(0);
-  t.addressMap = _.clone(this.addressMap);
-  t.score = this.score;
-  t.k = this.k;
-  t.store = _.clone(this.store);
-  t.address = this.address;
-  t.value = this.value;
-  t.numFactors = this.numFactors;
-  // t.checkConsistency();
+  t.copyFrom(this);
   return t;
 };
 
