@@ -2,13 +2,13 @@
 
 var ad = require('../../ad');
 var util = require('../../util');
+var _ = require('underscore');
+var Trace = require('../../trace');
 
 
 module.exports = function(env) {
 
   // TODO:
-  //   - Check consistency after running? (i.e. throw error if structure has changed,
-  //     by checking if any addresses were added/removed).
   //   - Optionally have 'info' on interpolation traces so we can record annealing
   //       acceptance ratio?
 
@@ -96,6 +96,7 @@ module.exports = function(env) {
   //    are continued.
   InterpolationTrace.prototype.continue = function() {
     // LARJ kernel assumes control
+    this.larjKernel.diffusionKernelObj = env.coroutine;
     env.coroutine = this.larjKernel;
     // Case 1: We have yet to execute the first trace
     if (this.larjKernel.diffusionKernel.trace === this) {
@@ -107,6 +108,36 @@ module.exports = function(env) {
       return this.trace2.continue();
     } else {
       throw 'This should be impossible';
+    }
+  };
+
+  // Called after continue() has finished
+  // Make choices list refer to new objects
+  // Ensure that structure has not changed
+  InterpolationTrace.prototype.finish = function() {
+    // Update choice list, ensure that every choice in choice list
+    //    is present in at least one of the two subtraces.
+    var addressMap = {};
+    for (var i = 0; i < this.choices.length; i++) {
+      var addr = this.choices[i].address;
+      addressMap[addr] = true;
+      if (this.trace1.findChoice(addr)) {
+        this.choices[i] = this.trace1.findChoice(addr);
+      } else if (this.trace2.findChoice(addr)) {
+        this.choices[i] = this.trace2.findChoice(addr);
+      } else {
+        throw 'Illegal structure change detected for interpolation trace';
+      }
+    }
+    // Ensure that every choice in the subtraces is present in the
+    //    choice list
+    for (var i = 0; i < this.trace1.choices.length; i++) {
+      assert(addressMap[this.trace1.choices[i].address],
+        'Illegal structure change detected for interpolation trace');
+    }
+    for (var i = 0; i < this.trace2.choices.length; i++) {
+      assert(addressMap[this.trace2.choices[i].address],
+        'Illegal structure change detected for interpolation trace');
     }
   };
 
@@ -150,13 +181,47 @@ module.exports = function(env) {
     return t;
   };
 
+  InterpolationTrace.prototype.setChoiceValue = function(address, val) {
+    if (this.trace1.findChoice(address)) {
+      this.trace1.setChoiceValue(address, val);
+    }
+    if (this.trace2.findChoice(address)) {
+      this.trace2.setChoiceValue(address, val);
+    }
+  };
+
+
+  // --------------------------------------------------------------------------
+
+
+  // This is just a simple extension of the vanilla Trace class which lets the
+  //    LARJ kernel steal back control of env.coroutine when continue() is called.
+  // 'victimName' is the name of the kernel that has control stolen from it.
+
+  function StealingTrace(trace, stealingKernel, victimName) {
+    Trace.call(this, trace.wpplFn, trace.initialStore, trace.exitK, trace.baseAddress);
+    this.stealingKernel = stealingKernel;
+    this.victimName = victimName;
+  }
+  StealingTrace.prototype = Object.create(Trace.prototype);
+
+  StealingTrace.prototype.fresh = function() {
+    return new StealingTrace(this, this.stealingKernel, this.victimName);
+  };
+
+  StealingTrace.prototype.continue = function() {
+    this.stealingKernel[victimName] = env.coroutine;
+    env.coroutine = stealingKernel;
+    return Trace.prototype.continue.call(this);
+  };
+
+
+  // --------------------------------------------------------------------------
+
 
   // TODO:
-//   - Jump proposals need to respect 'proposalBoundary', and we need to
-//     pass 'proposalBoundary' to the diffusion kernel as well (along with
-//     'exitFactor' and 'adRequired')
-//   - In index.js, create 'LARJ_MH' and 'LARJ_HMC', have them do the right thing.
-//     Make sure LARJ_HMC exposes 'adRequired' as a property.
+  //   - In index.js, create 'LARJ_MH' and 'LARJ_HMC', have them do the right thing.
+  //     Make sure LARJ_HMC exposes 'adRequired' as a property.
 
   function LARJKernel(cont, oldTrace, options) {
     var options = util.mergeDefaults(options, {
@@ -167,56 +232,106 @@ module.exports = function(env) {
       jumpFreq: undefined   // Default to numDiscreteChoice/numAllChoices
     });
 
-    assert(options.diffusionKernel, 'LARJ requires a diffusion kernel');
-
     this.cont = cont;
     this.oldTrace = oldTrace;
 
     this.proposalBoundary = options.proposalBoundary;
-    this.exitFactor = options.exitFactor;
     this.adRequired = options.adRequired;
 
     this.annealingSteps = options.annealingSteps;
     this.jumpFreq = options.jumpFreq;
-    this.diffusionKernel = options.diffusionKernel;
     this.currentAnnealingTrace = undefined;
+
+    assert(options.diffusionKernel, 'LARJ requires a diffusion kernel');
+    assert(options.jumpKernel, 'LARJ requires a jump kernel');
+    this.diffusionKernelFn = options.diffusionKernel;
+    this.jumpKernelFn = options.jumpKernel;
+    this.subKernelOpts = {
+      proposalBoundary: options.proposalBoundary,
+      exitFactor: options.exitFactor,
+      adRequired: options.adRequired
+    };
 
     this.coroutine = env.coroutine;
     env.coroutine = this;
   };
 
   LARJKernel.prototype.run = function() {
-    //
+    var jumpProb = this.jumpFreq || (this.numProposableJumpChoices() / this.numProposableChoices());
+    if (Math.random() < jumpProb) {
+      return this.jumpStep();
+    } else {
+      return this.diffusionStep();
+    }
   };
 
   LARJKernel.prototype.sample = function() {
-    // Forward to diffusion kernel
-    return this.diffusionKernel.sample.apply(this.diffusionKernel, arguments);
+    if (this.currentAnnealingTrace === undefined) {
+      // Forward to the jump kernel
+      return this.jumpKernelObj.sample.apply(this.jumpKernelObj, arguments);
+    } else {
+      // Forward to diffusion kernel
+      return this.diffusionKernelObj.sample.apply(this.diffusionKernelObj, arguments);
+    }
   };
 
   LARJKernel.prototype.factor = function() {
-    // Forward to diffusion kernel
-    return this.diffusionKernel.factor.apply(this.diffusionKernel, arguments);
+    if (this.currentAnnealingTrace === undefined) {
+      // Forward to the jump kernel
+      return this.jumpKernelObj.factor.apply(this.jumpKernelObj, arguments);
+    } else {
+      // Forward to diffusion kernel
+      return this.diffusionKernelObj.factor.apply(this.diffusionKernelObj, arguments);
+    }
   };
 
   // This interacts with InterpolationTrace.continue to make it possible to execute
   //    both subtraces
   LARJKernel.prototype.exit = function() {
-    // Case 1: We have finished executing trace1 and must now execute trace2
-    if (this.diffusionKernel.trace === this.currentAnnealingTrace.trace1) {
-      this.currentAnnealingTrace.continue();
-    // Case 2: We have finished executing trace2 and can restore control to the
-    //    diffusion kernel coroutine.
-    } else if (this.diffusionKernel.trace === this.currentAnnealingTrace.trace2) {
-      this.diffusionKernel.trace = this.currentAnnealingTrace;
-      env.coroutine = this.diffusionKernel;
-      this.diffusionKernel.exit.apply(this.diffusionKernel, arguments);
+    if (this.currentAnnealingTrace === undefined) {
+      // We have finished executing the initial jump
+      // TODO: finish this
     } else {
-      throw 'This should be impossible';
+      // Case 1: We have finished executing trace1 and must now execute trace2
+      if (this.diffusionKernelObj.trace === this.currentAnnealingTrace.trace1) {
+        this.currentAnnealingTrace.continue();
+      // Case 2: We have finished executing trace2 and can restore control to the
+      //    diffusion kernel coroutine.
+      } else if (this.diffusionKernelObj.trace === this.currentAnnealingTrace.trace2) {
+        this.currentAnnealingTrace.finish();
+        this.diffusionKernelObj.trace = this.currentAnnealingTrace;
+        env.coroutine = this.diffusionKernelObj;
+        this.diffusionKernelObj = undefined;
+        return env.exit.apply(null, arguments);
+      } else {
+        throw 'This should be impossible';
+      }
     }
   };
 
   LARJKernel.prototype.incrementalize = env.defaultCoroutine.incrementalize;
+
+  LARJKernel.prototype.finish = function(trace, accepted) {
+    assert(_.isBoolean(accepted));
+    if (this.oldTrace.info) {
+      var oldInfo = this.oldTrace.info;
+      trace.info = {
+        accepted: oldInfo.accepted + accepted,
+        total: oldInfo.total + 1
+      };
+    }
+    env.coroutine = this.coroutine;
+    return this.cont(trace);
+  };
+
+  LARJKernel.prototype.diffusionStep = function() {
+    return this.diffusionKernelFn(this.cont, this.oldTrace, this.subKernelOpts);
+  };
+
+  LARJKernel.prototype.jumpStep = function() {
+    var stealingTrace = new StealingTrace(this.oldTrace, this, 'jumpKernelObj');
+    return this.jumpKernelFn(this.cont, stealingTrace, this.subKernelOpts);
+  };
 
 	return function(cont, oldTrace, options) {
     return new LARJKernel(cont, oldTrace, options).run();
