@@ -1,0 +1,6 @@
+var model = function() {
+	var a = flip(0.9) ? beta(1, 5) : 0.7;
+	var b = flip(a);
+	factor(b ? 0 : -Infinity);
+	return a;
+};
