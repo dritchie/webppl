@@ -2,7 +2,6 @@
 
 var ad = require('../../ad');
 var util = require('../../util');
-var _ = require('underscore');
 var Trace = require('../../trace');
 
 
@@ -209,6 +208,12 @@ module.exports = function(env) {
     return new StealingTrace(this, this.stealingKernel, this.victimName);
   };
 
+  StealingTrace.prototype.toTrace = function() {
+    var t = new Trace(this.wpplFn, this.initialStore, this.exitK, this.baseAddress);
+    t.copyFrom(this);
+    return t;
+  };
+
   StealingTrace.prototype.continue = function() {
     this.stealingKernel[victimName] = env.coroutine;
     env.coroutine = stealingKernel;
@@ -257,7 +262,8 @@ module.exports = function(env) {
   };
 
   LARJKernel.prototype.run = function() {
-    var jumpProb = this.jumpFreq || (this.numProposableJumpChoices() / this.numProposableChoices());
+    var jumpProb = this.jumpFreq ||
+      (this.numProposableJumpChoices(this.oldTrace) / this.numProposableChoices(this.oldTrace));
     if (Math.random() < jumpProb) {
       return this.jumpStep();
     } else {
@@ -290,7 +296,11 @@ module.exports = function(env) {
   LARJKernel.prototype.exit = function() {
     if (this.currentAnnealingTrace === undefined) {
       // We have finished executing the initial jump
-      // TODO: finish this
+      // TODO: Incorporate annealing
+      this.jumpKernelObj.trace = this.jumpKernelObj.toTrace();  // StealingTrace -> Trace
+      env.coroutine = this.jumpKernelObj;
+      this.jumpKernelObj = undefined;
+      return env.exit.apply(null, arguments);
     } else {
       // Case 1: We have finished executing trace1 and must now execute trace2
       if (this.diffusionKernelObj.trace === this.currentAnnealingTrace.trace1) {
@@ -311,26 +321,28 @@ module.exports = function(env) {
 
   LARJKernel.prototype.incrementalize = env.defaultCoroutine.incrementalize;
 
-  LARJKernel.prototype.finish = function(trace, accepted) {
-    assert(_.isBoolean(accepted));
-    if (this.oldTrace.info) {
-      var oldInfo = this.oldTrace.info;
-      trace.info = {
-        accepted: oldInfo.accepted + accepted,
-        total: oldInfo.total + 1
-      };
-    }
-    env.coroutine = this.coroutine;
-    return this.cont(trace);
-  };
-
   LARJKernel.prototype.diffusionStep = function() {
     return this.diffusionKernelFn(this.cont, this.oldTrace, this.subKernelOpts);
   };
 
   LARJKernel.prototype.jumpStep = function() {
-    var stealingTrace = new StealingTrace(this.oldTrace, this, 'jumpKernelObj');
-    return this.jumpKernelFn(this.cont, stealingTrace, this.subKernelOpts);
+    // var stealingTrace = new StealingTrace(this.oldTrace, this, 'jumpKernelObj');
+    // return this.jumpKernelFn(this.cont, stealingTrace, this.subKernelOpts);
+    return this.jumpKernelFn(this.cont, this.oldTrace, this.subKernelOpts);
+  };
+
+  LARJKernel.prototype.proposableDiscreteErpIndices = function(trace) {
+    return _.range(this.proposalBoundary, trace.length).filter(function(i) {
+      return !trace.choices[i].erp.isContinuous;
+    });
+  };
+
+  LARJKernel.prototype.numProposableChoices = function(trace) {
+    return trace.length - this.proposalBoundary;
+  };
+
+  LARJKernel.prototype.numProposableJumpChoices = function(trace) {
+    return this.proposableDiscreteErpIndices(trace).length;
   };
 
 	return function(cont, oldTrace, options) {

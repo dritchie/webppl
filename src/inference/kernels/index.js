@@ -82,6 +82,9 @@ module.exports = function(env) {
 
   var MHKernel = require('./mhkernel')(env);
   var HMCKernel = require('./hmckernel')(env);
+  var LARJKernel = require('./larjkernel')(env);
+
+  // -------
 
   function HMCwithMHKernel(cont, oldTrace, options) {
     // The options arg is passed to both kernels as SMC passes
@@ -91,13 +94,36 @@ module.exports = function(env) {
       return MHKernel(cont, trace, opts);
     }, oldTrace, options);
   }
-
   HMCwithMHKernel.adRequired = true;
+
+  // -------
+
+  function MHcontinuous(cont, oldTrace, options) {
+    var opts = _.extendOwn({ continuousOnly: true }, options);
+    return MHKernel(cont, oldTrace, opts);
+  }
+  function MHdiscrete(cont, oldTrace, options) {
+    var opts = _.extendOwn({ discreteOnly: true }, options);
+    return MHKernel(cont, oldTrace, opts);
+  }
+
+  function LARJ_MH_Kernel(cont, oldTrace, options) {
+    var opts = _.extendOwn({
+      jumpKernel: MHdiscrete,
+      diffusionKernel: MHcontinuous
+    }, options);
+    return LARJKernel(cont, oldTrace, opts);
+  }
+
+  // TODO: LARJ_HMC_Kernel
+
+  // -------
 
   // Register all kernels
   registerKernel('MH', MHKernel);
   registerKernel('HMConly', HMCKernel);
   registerKernel('HMC', HMCwithMHKernel);
+  registerKernel('LARJ_MH', LARJ_MH_Kernel);
 
 
   return {

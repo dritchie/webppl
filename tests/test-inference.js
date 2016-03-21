@@ -335,19 +335,40 @@ var tests = [
     }
   },
   {
-    name: 'MHcontinuousOnly',
+    name: 'LARJ_MH',
     func: 'MCMC',
     settings: {
       hist: { tol: 0.1 },
-      MAP: { tol: 0.1, check: true},
-      args: {samples: 5000, kernel: { MH: { continuousOnly: true }}}
+      MAP: { tol: 0.1, check: true },
+      args: { kernel: 'LARJ_MH', samples: 5000 }
     },
     models: {
+      simple: true,
+      cache: true,
+      deterministic: { hist: { tol: 0 }, args: { kernel: 'LARJ_MH', samples: 100 } },
+      store: { hist: { tol: 0 }, args: { kernel: 'LARJ_MH', samples: 100 } },
+      notapes: { hist: { tol: 0 }, args: { kernel: 'LARJ_MH', samples: 100 } },
+      geometric: true,
+      gaussianMean: { mean: { tol: 0.3 }, std: { tol: 0.3 }, args: { kernel: 'LARJ_MH', samples: 80000, burn: 20000 } },
       drift: {
         mean: { tol: 0.3 },
         std: { tol: 0.3 },
-        args: { samples: 80000, burn: 20000, kernel: { MH: { continuousOnly: true } } }
-      }
+        args: { kernel: 'LARJ_MH', samples: 80000, burn: 20000 }
+      },
+      withCaching: true,
+      optionalErpParams: true,
+      variableSupport: true,
+      query: true,
+      onlyMAP: { mean: { tol: 0.1 }, args: { kernel: 'LARJ_MH', samples: 150, onlyMAP: true } },
+      nestedEnum1: { mean: { tol: 0.1 }, std: { tol: 0.075 } },
+      nestedEnum2: { mean: { tol: 0.1 }, std: { tol: 0.075 } },
+      nestedEnum3: { mean: { tol: 0.1 }, std: { tol: 0.075 } },
+      nestedEnum4: { hist: { exact: true } },
+      nestedEnum5: { mean: { tol: 0.1 }, std: { tol: 0.075 } },
+      nestedEnum6: { mean: { tol: 0.1 }, std: { tol: 0.075 } },
+      nestedEnum7: { mean: { tol: 0.1 }, std: { tol: 0.075 } },
+      nestedEnum8: { mean: { tol: 0.1 }, std: { tol: 0.075 } },
+      nestedEnumWithFactor: { mean: { tol: 0.1 }, std: { tol: 0.075 } }
     }
   },
   {
