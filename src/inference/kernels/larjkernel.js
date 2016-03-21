@@ -197,15 +197,23 @@ module.exports = function(env) {
   //    LARJ kernel steal back control of env.coroutine when continue() is called.
   // 'victimName' is the name of the kernel that has control stolen from it.
 
-  function StealingTrace(trace, stealingKernel, victimName) {
-    Trace.call(this, trace.wpplFn, trace.initialStore, trace.exitK, trace.baseAddress);
+  function StealingTrace(wpplFn, s, k, a, stealingKernel, victimName) {
+    Trace.call(this, wpplFn, s, k, a);
     this.stealingKernel = stealingKernel;
     this.victimName = victimName;
   }
   StealingTrace.prototype = Object.create(Trace.prototype);
 
   StealingTrace.prototype.fresh = function() {
-    return new StealingTrace(this, this.stealingKernel, this.victimName);
+    return new StealingTrace(this.wpplFn, this.initialStore, this.exitK, this.baseAddress,
+      this.stealingKernel, this.victimName);
+  };
+
+  StealingTrace.fromTrace = function(trace, stealingKernel, victimName) {
+    var t = new StealingTrace(trace.wpplFn, trace.initialStore, trace.exitK, trace.baseAddress,
+      stealingKernel, victimName);
+    t.copyFrom(trace);
+    return t;
   };
 
   StealingTrace.prototype.toTrace = function() {
@@ -215,18 +223,14 @@ module.exports = function(env) {
   };
 
   StealingTrace.prototype.continue = function() {
-    this.stealingKernel[victimName] = env.coroutine;
-    env.coroutine = stealingKernel;
+    this.stealingKernel[this.victimName] = env.coroutine;
+    env.coroutine = this.stealingKernel;
     return Trace.prototype.continue.call(this);
   };
 
 
   // --------------------------------------------------------------------------
 
-
-  // TODO:
-  //   - In index.js, create 'LARJ_MH' and 'LARJ_HMC', have them do the right thing.
-  //     Make sure LARJ_HMC exposes 'adRequired' as a property.
 
   function LARJKernel(cont, oldTrace, options) {
     var options = util.mergeDefaults(options, {
@@ -297,7 +301,7 @@ module.exports = function(env) {
     if (this.currentAnnealingTrace === undefined) {
       // We have finished executing the initial jump
       // TODO: Incorporate annealing
-      this.jumpKernelObj.trace = this.jumpKernelObj.toTrace();  // StealingTrace -> Trace
+      this.jumpKernelObj.trace = this.jumpKernelObj.trace.toTrace();  // StealingTrace -> Trace
       env.coroutine = this.jumpKernelObj;
       this.jumpKernelObj = undefined;
       return env.exit.apply(null, arguments);
@@ -326,9 +330,9 @@ module.exports = function(env) {
   };
 
   LARJKernel.prototype.jumpStep = function() {
-    // var stealingTrace = new StealingTrace(this.oldTrace, this, 'jumpKernelObj');
-    // return this.jumpKernelFn(this.cont, stealingTrace, this.subKernelOpts);
-    return this.jumpKernelFn(this.cont, this.oldTrace, this.subKernelOpts);
+    var stealingTrace = StealingTrace.fromTrace(this.oldTrace, this, 'jumpKernelObj');
+    return this.jumpKernelFn(this.cont, stealingTrace, this.subKernelOpts);
+    // return this.jumpKernelFn(this.cont, this.oldTrace, this.subKernelOpts);
   };
 
   LARJKernel.prototype.proposableDiscreteErpIndices = function(trace) {
