@@ -88,6 +88,8 @@ module.exports = function(env) {
   };
 
   HMCKernel.prototype.run = function() {
+    this.oldTrace.preKernelRun();
+
     // Initialize momentum.
     this.momentum = sampleMomentum(this.oldTrace);
 

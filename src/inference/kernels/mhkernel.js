@@ -37,6 +37,8 @@ module.exports = function(env) {
   }
 
   MHKernel.prototype.run = function() {
+    this.oldTrace.preKernelRun();
+
     this.regenFrom = this.sampleRegenChoice(this.oldTrace);
     if (this.regenFrom < 0) {
       return this.bail(true);
@@ -70,17 +72,18 @@ module.exports = function(env) {
       var lastChoice = this.trace.choiceAtIndex(this.trace.length - 1);
       return lastChoice.k(_.clone(lastChoice.store), lastChoice.val);
     }.bind(this));
+    this.acceptanceLogprob = 0;  // Zero out accumulator for acceptance logprob
     return this.trace.continue();
     // return regen.k(_.clone(regen.store), val);
   };
 
   MHKernel.prototype.factor = function(s, k, a, score) {
-    // Optimization: Bail early if we know acceptProb will be zero.
-    if (ad.untapify(score) === -Infinity) {
-      return this.bail(false);
-    }
     this.trace.numFactors += 1;
     this.trace.score = ad.add(this.trace.score, score);
+    // Optimization: Bail early if we know acceptProb will be zero.
+    if (ad.untapify(this.trace.score) === -Infinity) {
+      return this.bail(false);
+    }
     if (this.trace.numFactors === this.exitFactor) {
       this.trace.saveContinuation(s, k);
       return this.earlyExit(s);
@@ -208,7 +211,8 @@ module.exports = function(env) {
 
     var fw = this.transitionProb(oldTrace, trace);
     var bw = this.transitionProb(trace, oldTrace);
-    var p = Math.exp(ad.untapify(trace.score) - ad.untapify(oldTrace.score) + bw - fw);
+    var alp = this.acceptanceLogprob;   // Any additional acceptance log prob that's been accumulated
+    var p = Math.exp(ad.untapify(trace.score) - ad.untapify(oldTrace.score) + bw - fw + alp);
     assert(!isNaN(p));
     return Math.min(1, p);
   };

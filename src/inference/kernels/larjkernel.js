@@ -91,12 +91,15 @@ module.exports = function(env) {
     this.trace2.saveContinuation(s, k);
   };
 
-  // This interacts with LARJKernel.exit to ensure that both subtraces
-  //    are continued.
-  InterpolationTrace.prototype.continue = function() {
+  InterpolationTrace.prototype.preKernelRun = function() {
     // LARJ kernel assumes control
     this.larjKernel.diffusionKernelObj = env.coroutine;
     env.coroutine = this.larjKernel;
+  };
+
+  // This interacts with LARJKernel.exit to ensure that both subtraces
+  //    are continued.
+  InterpolationTrace.prototype.continue = function() {
     // Case 1: We have yet to execute the first trace
     if (this.larjKernel.diffusionKernel.trace === this) {
       this.larjKernel.diffusionKernel.trace = this.trace1;
@@ -204,11 +207,6 @@ module.exports = function(env) {
   }
   StealingTrace.prototype = Object.create(Trace.prototype);
 
-  StealingTrace.prototype.fresh = function() {
-    return new StealingTrace(this.wpplFn, this.initialStore, this.exitK, this.baseAddress,
-      this.stealingKernel, this.victimName);
-  };
-
   StealingTrace.fromTrace = function(trace, stealingKernel, victimName) {
     var t = new StealingTrace(trace.wpplFn, trace.initialStore, trace.exitK, trace.baseAddress,
       stealingKernel, victimName);
@@ -222,10 +220,10 @@ module.exports = function(env) {
     return t;
   };
 
-  StealingTrace.prototype.continue = function() {
+  StealingTrace.prototype.preKernelRun = function() {
+    // Stealing kernel assumes control
     this.stealingKernel[this.victimName] = env.coroutine;
     env.coroutine = this.stealingKernel;
-    return Trace.prototype.continue.call(this);
   };
 
 
@@ -247,6 +245,8 @@ module.exports = function(env) {
     this.proposalBoundary = options.proposalBoundary;
     this.adRequired = options.adRequired;
 
+    assert(options.annealingSteps === 0 || options.annealingSteps >= 2,
+      'LARJ needs to do at least two annealing steps');
     this.annealingSteps = options.annealingSteps;
     this.jumpFreq = options.jumpFreq;
     this.currentAnnealingTrace = undefined;
@@ -266,9 +266,11 @@ module.exports = function(env) {
   };
 
   LARJKernel.prototype.run = function() {
+    this.oldTrace.preKernelRun();
+
     var jumpProb = this.jumpFreq ||
       (this.numProposableJumpChoices(this.oldTrace) / this.numProposableChoices(this.oldTrace));
-    if (Math.random() < jumpProb) {
+    if (util.random() < jumpProb) {
       return this.jumpStep();
     } else {
       return this.diffusionStep();
@@ -298,25 +300,25 @@ module.exports = function(env) {
   // This interacts with InterpolationTrace.continue to make it possible to execute
   //    both subtraces
   LARJKernel.prototype.exit = function() {
+    // console.log('exit');
     if (this.currentAnnealingTrace === undefined) {
       // We have finished executing the initial jump
-      // TODO: Incorporate annealing
-      this.jumpKernelObj.trace = this.jumpKernelObj.trace.toTrace();  // StealingTrace -> Trace
-      env.coroutine = this.jumpKernelObj;
-      this.jumpKernelObj = undefined;
-      return env.exit.apply(null, arguments);
+      return this.jumpContinuation.apply(null, arguments);
     } else {
-      // Case 1: We have finished executing trace1 and must now execute trace2
-      if (this.diffusionKernelObj.trace === this.currentAnnealingTrace.trace1) {
+      // Case 1: The diffusion kernel exited before ever running trace1--it must have
+      //    bailed early. In this case, we immediately restore control to the diffusion
+      //    kernel and continue
+      if (this.diffusionKernelObj.trace === this.currentAnnealingTrace) {
+        return this.diffusionExit.apply(this, arguments);
+      // Case 2: We have finished executing trace1 and must now execute trace2
+      } else if (this.diffusionKernelObj.trace === this.currentAnnealingTrace.trace1) {
         this.currentAnnealingTrace.continue();
-      // Case 2: We have finished executing trace2 and can restore control to the
+      // Case 3: We have finished executing trace2 and can restore control to the
       //    diffusion kernel coroutine.
       } else if (this.diffusionKernelObj.trace === this.currentAnnealingTrace.trace2) {
-        this.currentAnnealingTrace.finish();
+        this.currentAnnealingTrace.finish();  // Finalize + check consistency
         this.diffusionKernelObj.trace = this.currentAnnealingTrace;
-        env.coroutine = this.diffusionKernelObj;
-        this.diffusionKernelObj = undefined;
-        return env.exit.apply(null, arguments);
+        return this.diffusionExit.apply(this, arguments);
       } else {
         throw 'This should be impossible';
       }
@@ -325,20 +327,82 @@ module.exports = function(env) {
 
   LARJKernel.prototype.incrementalize = env.defaultCoroutine.incrementalize;
 
+  LARJKernel.prototype.diffusionExit = function() {
+    env.coroutine = this.diffusionKernelObj;
+    this.diffusionKernelObj = undefined;
+    this.exitArgs = arguments;  // Needed for final jump kernel accept/reject
+    return env.exit.apply(null, arguments);
+  };
+
+  LARJKernel.prototype.jumpExit = function() {
+    env.coroutine = this.jumpKernelObj;
+    this.jumpKernelObj = undefined;
+    return env.exit.apply(null, arguments);
+  };
+
   LARJKernel.prototype.diffusionStep = function() {
+    // console.log('diffusionStep');
     return this.diffusionKernelFn(this.cont, this.oldTrace, this.subKernelOpts);
   };
 
   LARJKernel.prototype.jumpStep = function() {
+    // console.log('jumpStep');
+    // jumpContinuation receives exit arguments
+    this.jumpContinuation = function() {
+      this.jumpContinuation = undefined;
+
+      // Convert jumpKernelObj.oldTrace from a StealingTrace back into a regular
+      //    Trace, so that StealingTraces don't escape LARJKernel code
+      this.jumpKernelObj.oldTrace = this.jumpKernelObj.oldTrace.toTrace();
+
+      // If 'trace' isn't defined on the jump kernel, then we assume that the jump
+      //    kernel bailed out early before creating a new trace.
+      // In this case, or if 'trace' exists but has zero probability, we know there's
+      //    no point to annealing and we can invoke final exit immediately
+      if (this.jumpKernelObj.trace === undefined ||
+        ad.untapify(this.jumpKernelObj.trace.score) === -Infinity) {
+        return this.jumpExit.apply(this, arguments);
+      }
+
+      var newTrace = this.jumpKernelObj.trace;
+
+      // Do annealing (if annealing steps were requested and we have some continuous vars)
+      var nc1 = this.numProposableDiffusionChoices(this.oldTrace);
+      var nc2 = this.numProposableDiffusionChoices(newTrace);
+      if (this.annealingSteps > 0 && nc1 + nc2 > 0) {
+        var lerpTrace = new InterpolationTrace(this.oldTrace, newTrace, this);
+        var annealingLpRatio = 0;
+        return util.cpsLoop(
+          // number of loop iterations
+          this.annealingSteps,
+          // loop body function
+          function(i, k) {
+            lerpTrace.alpha = i / (this.annealingSteps - 1);
+            annealingLpRatio += ad.untapify(lerpTrace.score);
+            return this.diffusionKernelFn(function(newLerpTrace) {
+              lerpTrace = newLerpTrace;
+              annealingLpRatio -= ad.untapify(lerpTrace.score);
+              return k();
+            }.bind(this), lerpTrace, this.subKernelOpts);
+          }.bind(this),
+          // final continuation when loop is finished
+          function() {
+            // We assume the jump kernel exposes the accumulator 'acceptanceLogprob' and
+            //    takes it into account for its accept/reject decision
+            this.jumpKernelObj.acceptanceLogprob += annealingLpRatio;
+            this.jumpKernelObj.trace = lerpTrace.trace2;
+            return this.jumpExit.apply(this, this.exitArgs);
+          }.bind(this)
+        );
+      } else {
+        // No annealing requested/possible, go ahead and invoke final exit
+        return this.jumpExit.apply(this, arguments);
+      }
+    }.bind(this);
+
     var stealingTrace = StealingTrace.fromTrace(this.oldTrace, this, 'jumpKernelObj');
     return this.jumpKernelFn(this.cont, stealingTrace, this.subKernelOpts);
     // return this.jumpKernelFn(this.cont, this.oldTrace, this.subKernelOpts);
-  };
-
-  LARJKernel.prototype.proposableDiscreteErpIndices = function(trace) {
-    return _.range(this.proposalBoundary, trace.length).filter(function(i) {
-      return !trace.choices[i].erp.isContinuous;
-    });
   };
 
   LARJKernel.prototype.numProposableChoices = function(trace) {
@@ -347,6 +411,22 @@ module.exports = function(env) {
 
   LARJKernel.prototype.numProposableJumpChoices = function(trace) {
     return this.proposableDiscreteErpIndices(trace).length;
+  };
+
+  LARJKernel.prototype.numProposableDiffusionChoices = function(trace) {
+    return this.proposableContinuousErpIndices(trace).length;
+  };
+
+  LARJKernel.prototype.proposableDiscreteErpIndices = function(trace) {
+    return _.range(this.proposalBoundary, trace.length).filter(function(i) {
+      return !trace.choices[i].erp.isContinuous;
+    });
+  };
+
+  LARJKernel.prototype.proposableContinuousErpIndices = function(trace) {
+    return _.range(this.proposalBoundary, trace.length).filter(function(i) {
+      return trace.choices[i].erp.isContinuous;
+    });
   };
 
 	return function(cont, oldTrace, options) {

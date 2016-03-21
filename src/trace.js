@@ -5,7 +5,7 @@ var assert = require('assert');
 var isErp = require('./erp').isErp;
 var ad = require('./ad');
 
-var Trace = function(wpplFn, s, k, a) {
+function Trace(wpplFn, s, k, a) {
   // The program we're doing inference in, and the store, continuation
   // and address required to run it.
   this.wpplFn = wpplFn;
@@ -42,6 +42,10 @@ Trace.prototype.choiceAtIndex = function(index) {
 Trace.prototype.findChoice = function(address) {
   return this.addressMap[address];
 };
+
+// MCMC Kernels call this right before running
+// This doesn't do anything, but Trace subclasses might do something.
+Trace.prototype.preKernelRun = function() {};
 
 Trace.prototype.saveContinuation = function(s, k) {
   this.store = s;
