@@ -1,5 +1,6 @@
 'use strict';
 
+var assert = require('assert');
 var ad = require('../../ad');
 var util = require('../../util');
 var Trace = require('../../trace');
@@ -17,51 +18,14 @@ module.exports = function(env) {
     this.larjKernel = larjKernel;
     this.alpha = (alpha === undefined) ? 0 : alpha;
 
-    // Build merged list of choices
-
-    this.choices = [];
-    var i = 0;
-    var j = 0;
-    // Simultaneously iterate over choices of both traces
-    for (; i < trace1.choices.length && j < trace2.choices.length; i++, j++) {
-      var c1 = trace1.choices[i];
-      var c2 = trace2.choices[j];
-      // If both traces have the same choice at this index, add it once
-      if (c1.address === c2.address) {
-        this.choices.push(c1);
-      // If trace2 has choice c1 somewhere later on, add all choices
-      //    from trace2 up to choice c1, then add c1 itself
-      } else if (trace2.findChoice(c1.address)) {
-        var c12 = trace2.findChoice(c1.address);
-        for (; j < c12.index; j++)
-          this.choices.push(trace2.choices[j]);
-        this.choices.push(c1);
-      // Analogous case to the above, but with trace1 and trace2 swapped
-      } else if (trace1.findChoice(c2.address)) {
-        var c21 = trace1.findChoice(c2.address);
-        for (; i < c21.index; i++)
-          this.choices.push(trace1.choices[i]);
-        this.choices.push(c2);
-      // If the choices at this index are unique to each trace, add them both
-      } else {
-        this.choices.push(c1);
-        this.choices.push(c2);
-      }
-    }
-    // Deal with any leftover choices (at most one of these loops will execute)
-    for (; i < trace1.choices.length; i++) {
-      this.choices.push(trace1.choices[i]);
-    }
-    for (; j < trace2.choices.length; j++) {
-      this.choices.push(trace2.choices[j]);
-    }
+    this.rebuildMergedChoiceList();    
   }
 
   Object.defineProperty(InterpolationTrace.prototype, 'score', {
     get: function() {
       return ad.add(
         ad.mul(1-this.alpha, this.trace1.score),
-        ad.mul(alpha, this.trace2.score)
+        ad.mul(this.alpha, this.trace2.score)
       );
     }
   });
@@ -71,6 +35,45 @@ module.exports = function(env) {
       return this.choices.length;
     }
   });
+
+  InterpolationTrace.prototype.rebuildMergedChoiceList = function() {
+    this.choices = [];
+    var i = 0;
+    var j = 0;
+    // Simultaneously iterate over choices of both traces
+    for (; i < this.trace1.choices.length && j < this.trace2.choices.length; i++, j++) {
+      var c1 = this.trace1.choices[i];
+      var c2 = this.trace2.choices[j];
+      // If both traces have the same choice at this index, add it once
+      if (c1.address === c2.address) {
+        this.choices.push(c1);
+      // If trace2 has choice c1 somewhere later on, add all choices
+      //    from trace2 up to choice c1, then add c1 itself
+      } else if (this.trace2.findChoice(c1.address)) {
+        var c12 = this.trace2.findChoice(c1.address);
+        for (; j < c12.index; j++)
+          this.choices.push(this.trace2.choices[j]);
+        this.choices.push(c1);
+      // Analogous case to the above, but with trace1 and trace2 swapped
+      } else if (this.trace1.findChoice(c2.address)) {
+        var c21 = this.trace1.findChoice(c2.address);
+        for (; i < c21.index; i++)
+          this.choices.push(this.trace1.choices[i]);
+        this.choices.push(c2);
+      // If the choices at this index are unique to each trace, add them both
+      } else {
+        this.choices.push(c1);
+        this.choices.push(c2);
+      }
+    }
+    // Deal with any leftover choices (at most one of these loops will execute)
+    for (; i < this.trace1.choices.length; i++) {
+      this.choices.push(this.trace1.choices[i]);
+    }
+    for (; j < this.trace2.choices.length; j++) {
+      this.choices.push(this.trace2.choices[j]);
+    }
+  };
 
   InterpolationTrace.prototype.fresh = function() {
     var t1 = this.trace1.fresh();
@@ -84,6 +87,21 @@ module.exports = function(env) {
 
   InterpolationTrace.prototype.findChoice = function(address) {
     return this.trace1.findChoice(address) || this.trace2.findChoice(address);
+  };
+
+  InterpolationTrace.prototype.debugPrint = function() {
+    console.log('InterpolationTrace choices:');
+    for (var i = 0; i < this.choices.length; i++) {
+      console.log('  ' + this.choices[i].address);
+    }
+    console.log('trace1 choices:');
+    for (var i = 0; i < this.trace1.choices.length; i++) {
+      console.log('  ' + this.trace1.choices[i].address);
+    }
+    console.log('trace2 choices:');
+    for (var i = 0; i < this.trace2.choices.length; i++) {
+      console.log('  ' + this.trace2.choices[i].address);
+    }
   };
 
   InterpolationTrace.prototype.saveContinuation = function(s, k) {
@@ -101,45 +119,38 @@ module.exports = function(env) {
   //    are continued.
   InterpolationTrace.prototype.continue = function() {
     // Case 1: We have yet to execute the first trace
-    if (this.larjKernel.diffusionKernel.trace === this) {
-      this.larjKernel.diffusionKernel.trace = this.trace1;
+    if (this.larjKernel.diffusionKernelObj.trace === this) {
+      // console.log('continue trace1');
+      this.larjKernel.currentAnnealingTrace = this;
+      this.larjKernel.diffusionKernelObj.trace = this.trace1;
       return this.trace1.continue();
     // Case 2: We have executed trace1 and must now execute trace2
-    } else if (this.larjKernel.diffusionKernel.trace === this.trace1) {
-      this.larjKernel.diffusionKernel.trace = this.trace2;
+    } else if (this.larjKernel.diffusionKernelObj.trace === this.trace1) {
+      // console.log('continue trace2');
+      this.larjKernel.diffusionKernelObj.trace = this.trace2;
       return this.trace2.continue();
     } else {
-      throw 'This should be impossible';
+      throw 'LARJ diffusion kernel trace set to impossible value on InterpolationTrace.continue';
     }
   };
 
   // Called after continue() has finished
-  // Make choices list refer to new objects
-  // Ensure that structure has not changed
   InterpolationTrace.prototype.finish = function() {
-    // Update choice list, ensure that every choice in choice list
-    //    is present in at least one of the two subtraces.
-    var addressMap = {};
-    for (var i = 0; i < this.choices.length; i++) {
-      var addr = this.choices[i].address;
-      addressMap[addr] = true;
-      if (this.trace1.findChoice(addr)) {
-        this.choices[i] = this.trace1.findChoice(addr);
-      } else if (this.trace2.findChoice(addr)) {
-        this.choices[i] = this.trace2.findChoice(addr);
-      } else {
-        throw 'Illegal structure change detected for interpolation trace';
+    this.rebuildMergedChoiceList();
+  };
+
+  InterpolationTrace.prototype.hasSameStructure = function(otherTrace) {
+    if (this === otherTrace) {
+      return true;
+    } else if (this.length !== otherTrace.length) {
+      return false;
+    } else {
+      for (var i = 0; i < this.choices.length; i++) {
+        if (this.choices[i].address !== otherTrace.choices[i].address) {
+          return false;
+        }
       }
-    }
-    // Ensure that every choice in the subtraces is present in the
-    //    choice list
-    for (var i = 0; i < this.trace1.choices.length; i++) {
-      assert(addressMap[this.trace1.choices[i].address],
-        'Illegal structure change detected for interpolation trace');
-    }
-    for (var i = 0; i < this.trace2.choices.length; i++) {
-      assert(addressMap[this.trace2.choices[i].address],
-        'Illegal structure change detected for interpolation trace');
+      return true;
     }
   };
 
@@ -214,12 +225,6 @@ module.exports = function(env) {
     return t;
   };
 
-  StealingTrace.prototype.toTrace = function() {
-    var t = new Trace(this.wpplFn, this.initialStore, this.exitK, this.baseAddress);
-    t.copyFrom(this);
-    return t;
-  };
-
   StealingTrace.prototype.preKernelRun = function() {
     // Stealing kernel assumes control
     this.stealingKernel[this.victimName] = env.coroutine;
@@ -249,7 +254,6 @@ module.exports = function(env) {
       'LARJ needs to do at least two annealing steps');
     this.annealingSteps = options.annealingSteps;
     this.jumpFreq = options.jumpFreq;
-    this.currentAnnealingTrace = undefined;
 
     assert(options.diffusionKernel, 'LARJ requires a diffusion kernel');
     assert(options.jumpKernel, 'LARJ requires a jump kernel');
@@ -266,6 +270,7 @@ module.exports = function(env) {
   };
 
   LARJKernel.prototype.run = function() {
+    // console.log('============================================');
     this.oldTrace.preKernelRun();
 
     var jumpProb = this.jumpFreq ||
@@ -278,7 +283,7 @@ module.exports = function(env) {
   };
 
   LARJKernel.prototype.sample = function() {
-    if (this.currentAnnealingTrace === undefined) {
+    if (this.diffusionKernelObj === undefined) {
       // Forward to the jump kernel
       return this.jumpKernelObj.sample.apply(this.jumpKernelObj, arguments);
     } else {
@@ -288,7 +293,7 @@ module.exports = function(env) {
   };
 
   LARJKernel.prototype.factor = function() {
-    if (this.currentAnnealingTrace === undefined) {
+    if (this.diffusionKernelObj === undefined) {
       // Forward to the jump kernel
       return this.jumpKernelObj.factor.apply(this.jumpKernelObj, arguments);
     } else {
@@ -300,27 +305,32 @@ module.exports = function(env) {
   // This interacts with InterpolationTrace.continue to make it possible to execute
   //    both subtraces
   LARJKernel.prototype.exit = function() {
-    // console.log('exit');
-    if (this.currentAnnealingTrace === undefined) {
+    if (this.diffusionKernelObj === undefined) {
+      // console.log('jump initial exit');
       // We have finished executing the initial jump
       return this.jumpContinuation.apply(null, arguments);
     } else {
-      // Case 1: The diffusion kernel exited before ever running trace1--it must have
-      //    bailed early. In this case, we immediately restore control to the diffusion
-      //    kernel and continue
-      if (this.diffusionKernelObj.trace === this.currentAnnealingTrace) {
+      // Case 1: The diffusion kernel exited before ever creating a new trace, or it
+      //    exited with a zero-probability trace. This will be rejected, so we
+      //    immediately restore control to the diffusion kernel and let it exit.
+      if (this.diffusionKernelObj.trace === undefined ||
+        ad.untapify(this.diffusionKernelObj.trace.score) === -Infinity) {
+        // console.log('annealing bail exit');
         return this.diffusionExit.apply(this, arguments);
       // Case 2: We have finished executing trace1 and must now execute trace2
       } else if (this.diffusionKernelObj.trace === this.currentAnnealingTrace.trace1) {
-        this.currentAnnealingTrace.continue();
+        // console.log('annealing trace1 exit');
+        return this.currentAnnealingTrace.continue();
       // Case 3: We have finished executing trace2 and can restore control to the
       //    diffusion kernel coroutine.
       } else if (this.diffusionKernelObj.trace === this.currentAnnealingTrace.trace2) {
+        // console.log('annealing trace2 exit');
         this.currentAnnealingTrace.finish();  // Finalize + check consistency
         this.diffusionKernelObj.trace = this.currentAnnealingTrace;
+        this.currentAnnealingTrace = undefined;
         return this.diffusionExit.apply(this, arguments);
       } else {
-        throw 'This should be impossible';
+        throw 'LARJ diffusion kernel trace set to impossible value on LARJKernel.exit';
       }
     }
   };
@@ -349,11 +359,12 @@ module.exports = function(env) {
     // console.log('jumpStep');
     // jumpContinuation receives exit arguments
     this.jumpContinuation = function() {
+      // console.log('jumpContinuation');
       this.jumpContinuation = undefined;
 
       // Convert jumpKernelObj.oldTrace from a StealingTrace back into a regular
       //    Trace, so that StealingTraces don't escape LARJKernel code
-      this.jumpKernelObj.oldTrace = this.jumpKernelObj.oldTrace.toTrace();
+      this.jumpKernelObj.oldTrace = this.oldTrace;
 
       // If 'trace' isn't defined on the jump kernel, then we assume that the jump
       //    kernel bailed out early before creating a new trace.
@@ -361,15 +372,17 @@ module.exports = function(env) {
       //    no point to annealing and we can invoke final exit immediately
       if (this.jumpKernelObj.trace === undefined ||
         ad.untapify(this.jumpKernelObj.trace.score) === -Infinity) {
+        // console.log('jump bail exit');
         return this.jumpExit.apply(this, arguments);
       }
 
       var newTrace = this.jumpKernelObj.trace;
 
-      // Do annealing (if annealing steps were requested and we have some continuous vars)
+      // Do annealing (if annealing steps were requested and we have some continuous choices)
       var nc1 = this.numProposableDiffusionChoices(this.oldTrace);
       var nc2 = this.numProposableDiffusionChoices(newTrace);
       if (this.annealingSteps > 0 && nc1 + nc2 > 0) {
+        // console.log('begin annealing');
         var lerpTrace = new InterpolationTrace(this.oldTrace, newTrace, this);
         var annealingLpRatio = 0;
         return util.cpsLoop(
@@ -377,9 +390,12 @@ module.exports = function(env) {
           this.annealingSteps,
           // loop body function
           function(i, k) {
+            // console.log('----------------------------');
             lerpTrace.alpha = i / (this.annealingSteps - 1);
             annealingLpRatio += ad.untapify(lerpTrace.score);
             return this.diffusionKernelFn(function(newLerpTrace) {
+              assert(newLerpTrace.hasSameStructure(lerpTrace),
+                'LARJ annealing: Illegal structure change detected ');
               lerpTrace = newLerpTrace;
               annealingLpRatio -= ad.untapify(lerpTrace.score);
               return k();
@@ -391,11 +407,16 @@ module.exports = function(env) {
             //    takes it into account for its accept/reject decision
             this.jumpKernelObj.acceptanceLogprob += annealingLpRatio;
             this.jumpKernelObj.trace = lerpTrace.trace2;
+            // Trace throws an error if complete(val) is called on a trace that already
+            //    has a value, so we remove the final value before calling the final exit
+            this.jumpKernelObj.trace.value = undefined;
+            // console.log('jump post-annealing final exit');
             return this.jumpExit.apply(this, this.exitArgs);
           }.bind(this)
         );
       } else {
         // No annealing requested/possible, go ahead and invoke final exit
+        // console.log('jump no annealing final exit');
         return this.jumpExit.apply(this, arguments);
       }
     }.bind(this);
