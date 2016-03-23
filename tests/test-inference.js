@@ -351,7 +351,7 @@ var tests = [
         std: { tol: 0.3 },
         args: { kernel: 'LARJ_MH', samples: 80000, burn: 20000 }
       },
-      transdimensional: { mean: {tol: 0.07}, args: { kernel: { LARJ_MH: { annealingSteps: 20 } }, samples: 5000 } }
+      transdimensional: { mean: {tol: 0.07}, args: { kernel: { LARJ_MH: { annealingSteps: 20, jumpFreq: 0.33 } }, samples: 5000 } }
     }
   },
   {

@@ -89,19 +89,14 @@ module.exports = function(env) {
     return this.trace1.findChoice(address) || this.trace2.findChoice(address);
   };
 
-  InterpolationTrace.prototype.debugPrint = function() {
-    console.log('InterpolationTrace choices:');
+  InterpolationTrace.prototype.debugPrint = function(header) {
+    header = header || 'InterpolationTrace choices:';
+    console.log(header);
     for (var i = 0; i < this.choices.length; i++) {
       console.log('  ' + this.choices[i].address);
     }
-    console.log('trace1 choices:');
-    for (var i = 0; i < this.trace1.choices.length; i++) {
-      console.log('  ' + this.trace1.choices[i].address);
-    }
-    console.log('trace2 choices:');
-    for (var i = 0; i < this.trace2.choices.length; i++) {
-      console.log('  ' + this.trace2.choices[i].address);
-    }
+    this.trace1.debugPrint('trace1 choices:');
+    this.trace2.debugPrint('trace2 choices:');
   };
 
   InterpolationTrace.prototype.saveContinuation = function(s, k) {
@@ -251,7 +246,7 @@ module.exports = function(env) {
     this.adRequired = options.adRequired;
 
     assert(options.annealingSteps === 0 || options.annealingSteps >= 2,
-      'LARJ needs to do at least two annealing steps');
+      'LARJ needs to do at least two annealing steps (if it does any)');
     this.annealingSteps = options.annealingSteps;
     this.jumpFreq = options.jumpFreq;
 
@@ -270,7 +265,6 @@ module.exports = function(env) {
   };
 
   LARJKernel.prototype.run = function() {
-    // console.log('============================================');
     this.oldTrace.preKernelRun();
 
     var jumpProb = this.jumpFreq ||
@@ -325,7 +319,7 @@ module.exports = function(env) {
       //    diffusion kernel coroutine.
       } else if (this.diffusionKernelObj.trace === this.currentAnnealingTrace.trace2) {
         // console.log('annealing trace2 exit');
-        this.currentAnnealingTrace.finish();  // Finalize + check consistency
+        this.currentAnnealingTrace.finish();  // Finalize
         this.diffusionKernelObj.trace = this.currentAnnealingTrace;
         this.currentAnnealingTrace = undefined;
         return this.diffusionExit.apply(this, arguments);
@@ -340,7 +334,6 @@ module.exports = function(env) {
   LARJKernel.prototype.diffusionExit = function() {
     env.coroutine = this.diffusionKernelObj;
     this.diffusionKernelObj = undefined;
-    this.exitArgs = arguments;  // Needed for final jump kernel accept/reject
     return env.exit.apply(null, arguments);
   };
 
@@ -352,13 +345,16 @@ module.exports = function(env) {
 
   LARJKernel.prototype.diffusionStep = function() {
     // console.log('diffusionStep');
+    env.coroutine = this.coroutine;   // So nested inference works
     return this.diffusionKernelFn(this.cont, this.oldTrace, this.subKernelOpts);
   };
 
   LARJKernel.prototype.jumpStep = function() {
+    // console.log('============================================');
     // console.log('jumpStep');
-    // jumpContinuation receives exit arguments
-    this.jumpContinuation = function() {
+    // jumpContinuation receives exit arguments (there may be more than just
+    //    s and val)
+    this.jumpContinuation = function(s, val) {
       // console.log('jumpContinuation');
       this.jumpContinuation = undefined;
 
@@ -382,8 +378,15 @@ module.exports = function(env) {
       var nc1 = this.numProposableDiffusionChoices(this.oldTrace);
       var nc2 = this.numProposableDiffusionChoices(newTrace);
       if (this.annealingSteps > 0 && nc1 + nc2 > 0) {
+        // Need to complete the trace before we build proposals off of it (otherwise the
+        //    'undefined' return value might persist through the whole annealing sequence)
+        // We only do this here because the other control paths immediately call jumpExit,
+        //    which itself invokes complete (via jumpKernelObj.exit).
+        newTrace.complete(val);
         // console.log('begin annealing');
         var lerpTrace = new InterpolationTrace(this.oldTrace, newTrace, this);
+        // We assume that jumpKernelObj provides a transitionProb(oldTrace, newTrace) method
+        var fw = this.jumpKernelObj.transitionProb(lerpTrace.trace1, lerpTrace.trace2);
         var annealingLpRatio = 0;
         return util.cpsLoop(
           // number of loop iterations
@@ -403,15 +406,19 @@ module.exports = function(env) {
           }.bind(this),
           // final continuation when loop is finished
           function() {
-            // We assume the jump kernel exposes the accumulator 'acceptanceLogprob' and
-            //    takes it into account for its accept/reject decision
-            this.jumpKernelObj.acceptanceLogprob += annealingLpRatio;
-            this.jumpKernelObj.trace = lerpTrace.trace2;
-            // Trace throws an error if complete(val) is called on a trace that already
-            //    has a value, so we remove the final value before calling the final exit
-            this.jumpKernelObj.trace.value = undefined;
+            // Compute final LARJ acceptance probability, return
+            var bw = this.jumpKernelObj.transitionProb(lerpTrace.trace2, lerpTrace.trace1);
+            var newTrace = lerpTrace.trace2;
+            var acceptProb =
+              ad.untapify(newTrace.score)
+              - ad.untapify(this.oldTrace.score)
+              + bw - fw + annealingLpRatio;
+            acceptProb = Math.min(1, Math.exp(acceptProb));
+            assert(!isNaN(acceptProb));
+            var accept = util.random() < acceptProb;
+            env.coroutine = this.coroutine;
             // console.log('jump post-annealing final exit');
-            return this.jumpExit.apply(this, this.exitArgs);
+            return this.cont(accept ? newTrace : this.oldTrace);
           }.bind(this)
         );
       } else {
@@ -422,6 +429,7 @@ module.exports = function(env) {
     }.bind(this);
 
     var stealingTrace = StealingTrace.fromTrace(this.oldTrace, this, 'jumpKernelObj');
+    env.coroutine = this.coroutine;   // So nested inference works
     return this.jumpKernelFn(this.cont, stealingTrace, this.subKernelOpts);
     // return this.jumpKernelFn(this.cont, this.oldTrace, this.subKernelOpts);
   };

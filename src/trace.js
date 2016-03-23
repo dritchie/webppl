@@ -170,6 +170,14 @@ Trace.prototype.copy = function() {
   return t;
 };
 
+Trace.prototype.debugPrint = function(header) {
+  header = header || 'trace choices:';
+  console.log(header);
+  for (var i = 0; i < this.choices.length; i++) {
+    console.log('  ' + this.choices[i].address, this.choices[i].val);
+  }
+}
+
 Trace.prototype.checkConsistency = function() {
   assert(_.isFunction(this.wpplFn));
   assert(_.isFunction(this.exitK));

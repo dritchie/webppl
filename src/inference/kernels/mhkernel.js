@@ -72,7 +72,6 @@ module.exports = function(env) {
       var lastChoice = this.trace.choiceAtIndex(this.trace.length - 1);
       return lastChoice.k(_.clone(lastChoice.store), lastChoice.val);
     }.bind(this));
-    this.acceptanceLogprob = 0;  // Zero out accumulator for acceptance logprob
     return this.trace.continue();
     // return regen.k(_.clone(regen.store), val);
   };
@@ -211,8 +210,7 @@ module.exports = function(env) {
 
     var fw = this.transitionProb(oldTrace, trace);
     var bw = this.transitionProb(trace, oldTrace);
-    var alp = this.acceptanceLogprob;   // Any additional acceptance log prob that's been accumulated
-    var p = Math.exp(ad.untapify(trace.score) - ad.untapify(oldTrace.score) + bw - fw + alp);
+    var p = Math.exp(ad.untapify(trace.score) - ad.untapify(oldTrace.score) + bw - fw);
     assert(!isNaN(p));
     return Math.min(1, p);
   };
