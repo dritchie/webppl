@@ -355,6 +355,18 @@ var tests = [
     }
   },
   {
+    name: 'LARJ_HMC',
+    func: 'MCMC',
+    settings: {
+      hist: { tol: 0.1 },
+      MAP: { tol: 0.1, check: true },
+      args: { kernel: { LARJ_HMC: { annealingSteps: 20, jumpFreq: 0.33 } }, samples: 5000 }
+    },
+    models: {
+      transdimensional: { mean: {tol: 0.07} }
+    }
+  },
+  {
     name: 'HMC',
     func: 'MCMC',
     settings: {

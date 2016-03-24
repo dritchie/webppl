@@ -98,6 +98,7 @@ module.exports = function(env) {
 
   // -------
 
+  // LARJ_MH
   function MHcontinuous(cont, oldTrace, options) {
     var opts = _.extendOwn({ continuousOnly: true }, options);
     return MHKernel(cont, oldTrace, opts);
@@ -106,7 +107,6 @@ module.exports = function(env) {
     var opts = _.extendOwn({ discreteOnly: true }, options);
     return MHKernel(cont, oldTrace, opts);
   }
-
   function LARJ_MH_Kernel(cont, oldTrace, options) {
     var opts = _.extendOwn({
       jumpKernel: MHdiscrete,
@@ -115,7 +115,28 @@ module.exports = function(env) {
     return LARJKernel(cont, oldTrace, opts);
   }
 
-  // TODO: LARJ_HMC_Kernel
+  // LARJ_HMC
+  function MHdiscreteAD(cont, oldTrace, options) {
+    var opts = _.extendOwn({ discreteOnly: true, adRequired: true }, options);
+    return MHKernel(cont, oldTrace, opts);
+  }
+  function LARJ_HMC_Kernel(cont, oldTrace, options) {
+    var hmcSteps = options.hmcSteps;
+    var hmcStepSize = options.hmcStepSize;
+    function HMCdiffusion(cont, oldTrace, options) {
+      var opts = _.extendOwn({
+        steps: hmcSteps,
+        stepSize: hmcStepSize  
+      }, options);
+      return HMCKernel(cont, oldTrace, opts);
+    }
+    var opts = _.extendOwn({
+      jumpKernel: MHdiscreteAD,
+      diffusionKernel: HMCdiffusion
+    });
+    return LARJKernel(cont, oldTrace, opts);
+  }
+  LARJ_HMC_Kernel.adRequired = true;
 
   // -------
 
@@ -124,6 +145,7 @@ module.exports = function(env) {
   registerKernel('HMConly', HMCKernel);
   registerKernel('HMC', HMCwithMHKernel);
   registerKernel('LARJ_MH', LARJ_MH_Kernel);
+  registerKernel('LARJ_HMC', LARJ_HMC_Kernel);
 
 
   return {
