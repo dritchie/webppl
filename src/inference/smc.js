@@ -34,6 +34,9 @@ module.exports = function(env) {
     this.completeParticles = [];
     this.particleIndex = 0;
 
+    this.justSample = options.justSample;
+    this.onlyMAP = options.onlyMAP;
+
     this.step = 0;
 
     // Create initial particles.
@@ -257,7 +260,9 @@ module.exports = function(env) {
   SMC.prototype.finish = function(s, val) {
     assert.strictEqual(this.completeParticles.length, this.numParticles);
 
-    var hist = new Histogram();
+    var aggregator = (this.justSample || this.onlyMAP) ?
+        new MAP(this.justSample) :
+        new Histogram();
     var logAvgW = _.first(this.completeParticles).logWeight;
 
     return util.cpsForEach(
@@ -268,15 +273,15 @@ module.exports = function(env) {
                 this.rejuvSteps,
                 kernels.sequence(
                     this.rejuvKernel,
-                    kernels.tap(function(trace) { hist.add(trace.value); })));
+                    kernels.tap(function(trace) { aggregator.add(trace.value, trace.score); })));
             return chain(k, particle.trace);
           } else {
-            hist.add(particle.trace.value);
+            aggregator.add(particle.trace.value, particle.trace.value);
             return k();
           }
         }.bind(this),
         function() {
-          var dist = hist.toERP();
+          var dist = aggregator.toERP();
           dist.normalizationConstant = logAvgW;
           env.coroutine = this.coroutine;
           return this.k(this.s, dist);
