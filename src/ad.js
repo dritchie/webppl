@@ -13,9 +13,7 @@ ad.deepUntapify = function(x) {
   if (_.isObject(x) && !_.isArray(x) && !ad.isTape(x)) {
   	var proto = Object.getPrototypeOf(x);
   	var xx = _.mapObject(x, ad.deepUntapify);
-  	Object.setPrototypeOf(xx, proto);
-  	return xx;
-    // return _.mapObject(x, ad.deepUntapify);
+    return _.extendOwn(Object.create(proto), xx);
   } else {
     return ad.untapify(x);
   }
