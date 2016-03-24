@@ -1,6 +1,7 @@
 'use strict';
 
 var _ = require('underscore');
+var present = require('present');
 var util = require('../util');
 var Histogram = require('../aggregation/histogram');
 var MAP = require('../aggregation/map');
@@ -32,7 +33,10 @@ module.exports = function(env) {
 
     var initialize, run, finish;
 
+    var initialTime;
+
     initialize = function() {
+      initialTime = present();
       _.invoke(callbacks, 'initialize');
       return Initialize(run, wpplFn, s, env.exit, a, { ad: options.kernel.adRequired });
     };
@@ -56,13 +60,14 @@ module.exports = function(env) {
       return k(s, aggregator.toERP());
     };
 
-    return initialize();
-  }
+    function makeExtractValue(fn) {
+      return kernels.tap(function(trace) {
+        var time = present() - initialTime;
+        fn(trace.value, trace.score, time);
+      });
+    }
 
-  function makeExtractValue(fn) {
-    return kernels.tap(function(trace) {
-      fn(trace.value, trace.score);
-    });
+    return initialize();
   }
 
   function numIters(opts) {

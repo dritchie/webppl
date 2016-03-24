@@ -11,11 +11,11 @@ var MAP = function(retainSamples) {
   this.retainSamples = retainSamples;
 };
 
-MAP.prototype.add = function(value, score) {
+MAP.prototype.add = function(value, score, time) {
   var value = ad.deepUntapify(value);
   var score = ad.untapify(score);
   if (this.retainSamples) {
-    this.samples.push({ value: value, score: score });
+    this.samples.push({ value: value, score: score, time: time });
   }
   if (score > this.max.score) {
     this.max.value = value;
