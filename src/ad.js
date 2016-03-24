@@ -11,7 +11,11 @@ ad.isTape = function(obj) {
 // here we extend that to other objects.
 ad.deepUntapify = function(x) {
   if (_.isObject(x) && !_.isArray(x) && !ad.isTape(x)) {
-    return _.mapObject(x, ad.deepUntapify);
+  	var proto = Object.getPrototypeOf(x);
+  	var xx = _.mapObject(x, ad.deepUntapify);
+  	Object.setPrototypeOf(xx, proto);
+  	return xx;
+    // return _.mapObject(x, ad.deepUntapify);
   } else {
     return ad.untapify(x);
   }
