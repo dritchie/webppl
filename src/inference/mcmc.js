@@ -21,6 +21,7 @@ module.exports = function(env) {
     });
 
     options.kernel = kernels.parseOptions(options.kernel);
+    options.burnkernel = options.burnkernel ? kernels.parseOptions(options.burnkernel) : options.kernel;
 
     var callbacks = options.verbose ?
         [makeVMCallbackForPlatform()].concat(options.callbacks) :
@@ -38,7 +39,7 @@ module.exports = function(env) {
     initialize = function() {
       initialTime = present();
       _.invoke(callbacks, 'initialize');
-      return Initialize(run, wpplFn, s, env.exit, a, { ad: options.kernel.adRequired });
+      return Initialize(run, wpplFn, s, env.exit, a, { ad: options.burnkernel.adRequired || options.kernel.adRequired });
     };
 
     run = function(initialTrace) {
@@ -46,8 +47,10 @@ module.exports = function(env) {
       var callback = kernels.tap(function(trace) { _.invoke(callbacks, 'iteration', trace); });
       var collectSample = makeExtractValue(aggregator.add.bind(aggregator));
       var kernel = kernels.sequence(options.kernel, callback);
+      var burnkernel = kernels.sequence(options.burnkernel, callback);
       var chain = kernels.sequence(
-          kernels.repeat(options.burn, kernel),
+          // kernels.repeat(options.burn, kernel),
+          kernels.repeat(options.burn, burnkernel),
           kernels.repeat(options.samples,
               kernels.sequence(
                   kernels.repeat(options.lag + 1, kernel),
@@ -57,6 +60,7 @@ module.exports = function(env) {
 
     finish = function(trace) {
       _.invoke(callbacks, 'finish', trace);
+      // console.log(trace.info.accepted / trace.info.total);
       return k(s, aggregator.toERP());
     };
 
