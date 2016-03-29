@@ -138,6 +138,13 @@ module.exports = function(env) {
   }
   LARJ_HMC_Kernel.adRequired = true;
 
+  // MH, with ad required
+  function MH_AD(cont, oldTrace, options) {
+    var opts = _.extendOwn({ adRequired: true }, options);
+    return MHKernel(cont, oldTrace, opts);
+  }
+  MH_AD.adRequired = true;
+
   // -------
 
   // Register all kernels
@@ -146,6 +153,7 @@ module.exports = function(env) {
   registerKernel('HMC', HMCwithMHKernel);
   registerKernel('LARJ_MH', LARJ_MH_Kernel);
   registerKernel('LARJ_HMC', LARJ_HMC_Kernel);
+  registerKernel('MH_AD', MH_AD);
 
 
   return {
