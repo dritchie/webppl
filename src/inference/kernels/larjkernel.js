@@ -416,6 +416,13 @@ module.exports = function(env) {
             acceptProb = Math.min(1, Math.exp(acceptProb));
             assert(!isNaN(acceptProb));
             var accept = util.random() < acceptProb;
+            if (accept && this.oldTrace.info) {
+              var oldInfo = this.oldTrace.info;
+              newTrace.info = {
+                accepted: oldInfo.accepted + accept,
+                total: oldInfo.total + 1
+              };
+            }
             env.coroutine = this.coroutine;
             // console.log('jump post-annealing final exit');
             return this.cont(accept ? newTrace : this.oldTrace);
