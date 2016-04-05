@@ -240,7 +240,8 @@ module.exports = function(env) {
       exitFactor: 0,
       adRequired: false,
       annealingSteps: 0,
-      jumpFreq: undefined   // Default to numDiscreteChoice/numAllChoices
+      jumpFreq: undefined,   // Default to numDiscreteChoice/numAllChoices
+      debug: false
     });
 
     this.cont = cont;
@@ -252,6 +253,9 @@ module.exports = function(env) {
     assert(options.annealingSteps === 0 || options.annealingSteps >= 2,
       'LARJ needs to do at least two annealing steps (if it does any)');
     this.annealingSteps = options.annealingSteps;
+    this.tempIntervals = options.tempIntervals || this.annealingSteps;
+    assert(this.annealingSteps % this.tempIntervals === 0,
+      'LARJ tempIntervals needs to evenly divide annealingSteps');
     this.jumpFreq = options.jumpFreq;
 
     assert(options.diffusionKernel, 'LARJ requires a diffusion kernel');
@@ -263,6 +267,8 @@ module.exports = function(env) {
       exitFactor: options.exitFactor,
       adRequired: options.adRequired
     };
+
+    this.debug = options.debug;
 
     this.coroutine = env.coroutine;
     env.coroutine = this;
@@ -390,48 +396,65 @@ module.exports = function(env) {
         // console.log('begin annealing');
 
         // LARJ DEBUG
-        var annealTraces = [];
-        global.annealingTraces.push(annealTraces);
-        annealTraces.push(newTrace);
-        var t0score = newTrace.score;
-        var annealDiffs = [];
-        global.annealingDiffs.push(annealDiffs);
-        var prevCorrectFactor;
+        var annealTraces, t0score, annealDiffs, prevCorrectFactor;
+        if (this.debug) {
+          annealTraces = [];
+          annealTraces.push(newTrace);
+          t0score = newTrace.score;
+          annealDiffs = [];
+          global.annealingTraces.push(annealTraces);
+          global.annealingDiffs.push(annealDiffs);
+        }
 
         var lerpTrace = new InterpolationTrace(this.oldTrace, newTrace, this);
         // We assume that jumpKernelObj provides a transitionProb(oldTrace, newTrace) method
         var fw = this.jumpKernelObj.transitionProb(lerpTrace.trace1, lerpTrace.trace2);
         var annealingLpRatio = 0;
+
+        // Loop over temperature intervals
         return util.cpsLoop(
-          // number of loop iterations
-          this.annealingSteps,
-          // loop body function
+
+          this.tempIntervals,
+
           function(i, k) {
             // console.log('----------------------------');
-            lerpTrace.alpha = i / (this.annealingSteps - 1);
+            lerpTrace.alpha = i / (this.tempIntervals - 1);
             annealingLpRatio += ad.untapify(lerpTrace.score);
 
             // LARJ DEBUG
-            if (i > 0) {
+            if (this.debug && i > 0) {
               var correctDiff = ad.untapify(lerpTrace.score) - prevCorrectFactor;
               annealDiffs.push(correctDiff);
             }
 
-            return this.diffusionKernelFn(function(newLerpTrace) {
-              assert(newLerpTrace.hasSameStructure(lerpTrace),
-                'LARJ annealing: Illegal structure change detected ');
-              lerpTrace = newLerpTrace;
-              annealingLpRatio -= ad.untapify(lerpTrace.score);
+            // Do annealingSteps/tempIntervals annealing steps
+            return util.cpsLoop(
 
-              // LARJ DEBUG
-              annealTraces.push(lerpTrace.trace2);
-              prevCorrectFactor = ad.untapify(lerpTrace.score);
+              this.annealingSteps / this.tempIntervals,
 
-              return k();
-            }.bind(this), lerpTrace, this.subKernelOpts);
+              function(i, k) {
+                return this.diffusionKernelFn(function(newLerpTrace) {
+                  assert(newLerpTrace.hasSameStructure(lerpTrace),
+                    'LARJ annealing: Illegal structure change detected ');
+                  lerpTrace = newLerpTrace;
+                  return k();
+                }.bind(this), lerpTrace, this.subKernelOpts);
+              }.bind(this),
+
+              function() {
+                annealingLpRatio -= ad.untapify(lerpTrace.score);
+
+                // LARJ DEBUG
+                if (this.debug) {
+                  annealTraces.push(lerpTrace.trace2);
+                  prevCorrectFactor = ad.untapify(lerpTrace.score);
+                }
+                return k();
+              }.bind(this)
+            );
 
           }.bind(this),
-          // final continuation when loop is finished
+
           function() {
             // Compute final LARJ acceptance probability, return
             var bw = this.jumpKernelObj.transitionProb(lerpTrace.trace2, lerpTrace.trace1);
@@ -445,14 +468,16 @@ module.exports = function(env) {
             var accept = util.random() < acceptProb;
 
             // LARJ DEBUG
-            console.log('-------------------------------------------------------------------------');
-            console.log('accept:', accept);
-            console.log('dims:', this.oldTrace.length, newTrace.length);
-            console.log('final accept lp:', acceptLogProb);
-            console.log('new score | old score | ratio:', newTrace.score, this.oldTrace.score, newTrace.score - this.oldTrace.score);
-            console.log('bw | fw | ratio:', bw, fw, bw - fw);
-            console.log('anneal ratio:', annealingLpRatio);
-            console.log('t0 score | tT score | diff:', t0score, newTrace.score, t0score - newTrace.score);
+            if (this.debug) {
+              console.log('-------------------------------------------------------------------------');
+              console.log('accept:', accept);
+              console.log('dims:', this.oldTrace.length, newTrace.length);
+              console.log('final accept lp:', acceptLogProb);
+              console.log('new score | old score | ratio:', newTrace.score, this.oldTrace.score, newTrace.score - this.oldTrace.score);
+              console.log('bw | fw | ratio:', bw, fw, bw - fw);
+              console.log('anneal ratio:', annealingLpRatio);
+              console.log('t0 score | tT score | diff:', t0score, newTrace.score, t0score - newTrace.score);
+            }
 
             if (accept && this.oldTrace.info) {
               var oldInfo = this.oldTrace.info;
