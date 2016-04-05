@@ -230,6 +230,10 @@ module.exports = function(env) {
   // --------------------------------------------------------------------------
 
 
+  // LARJ DEBUG
+  global.annealingTraces = [];
+  global.annealingDiffs = [];
+
   function LARJKernel(cont, oldTrace, options) {
     var options = util.mergeDefaults(options, {
       proposalBoundary: 0,
@@ -384,6 +388,16 @@ module.exports = function(env) {
         //    which itself invokes complete (via jumpKernelObj.exit).
         newTrace.complete(val);
         // console.log('begin annealing');
+
+        // LARJ DEBUG
+        var annealTraces = [];
+        global.annealingTraces.push(annealTraces);
+        annealTraces.push(newTrace);
+        var t0score = newTrace.score;
+        var annealDiffs = [];
+        global.annealingDiffs.push(annealDiffs);
+        var prevCorrectFactor;
+
         var lerpTrace = new InterpolationTrace(this.oldTrace, newTrace, this);
         // We assume that jumpKernelObj provides a transitionProb(oldTrace, newTrace) method
         var fw = this.jumpKernelObj.transitionProb(lerpTrace.trace1, lerpTrace.trace2);
@@ -396,26 +410,50 @@ module.exports = function(env) {
             // console.log('----------------------------');
             lerpTrace.alpha = i / (this.annealingSteps - 1);
             annealingLpRatio += ad.untapify(lerpTrace.score);
+
+            // LARJ DEBUG
+            if (i > 0) {
+              var correctDiff = ad.untapify(lerpTrace.score) - prevCorrectFactor;
+              annealDiffs.push(correctDiff);
+            }
+
             return this.diffusionKernelFn(function(newLerpTrace) {
               assert(newLerpTrace.hasSameStructure(lerpTrace),
                 'LARJ annealing: Illegal structure change detected ');
               lerpTrace = newLerpTrace;
               annealingLpRatio -= ad.untapify(lerpTrace.score);
+
+              // LARJ DEBUG
+              annealTraces.push(lerpTrace.trace2);
+              prevCorrectFactor = ad.untapify(lerpTrace.score);
+
               return k();
             }.bind(this), lerpTrace, this.subKernelOpts);
+
           }.bind(this),
           // final continuation when loop is finished
           function() {
             // Compute final LARJ acceptance probability, return
             var bw = this.jumpKernelObj.transitionProb(lerpTrace.trace2, lerpTrace.trace1);
             var newTrace = lerpTrace.trace2;
-            var acceptProb =
+            var acceptLogProb =
               ad.untapify(newTrace.score)
               - ad.untapify(this.oldTrace.score)
               + bw - fw + annealingLpRatio;
-            acceptProb = Math.min(1, Math.exp(acceptProb));
+            var acceptProb = Math.min(1, Math.exp(acceptLogProb));
             assert(!isNaN(acceptProb));
             var accept = util.random() < acceptProb;
+
+            // LARJ DEBUG
+            console.log('-------------------------------------------------------------------------');
+            console.log('accept:', accept);
+            console.log('dims:', this.oldTrace.length, newTrace.length);
+            console.log('final accept lp:', acceptLogProb);
+            console.log('new score | old score | ratio:', newTrace.score, this.oldTrace.score, newTrace.score - this.oldTrace.score);
+            console.log('bw | fw | ratio:', bw, fw, bw - fw);
+            console.log('anneal ratio:', annealingLpRatio);
+            console.log('t0 score | tT score | diff:', t0score, newTrace.score, t0score - newTrace.score);
+
             if (accept && this.oldTrace.info) {
               var oldInfo = this.oldTrace.info;
               newTrace.info = {
