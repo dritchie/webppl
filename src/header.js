@@ -29,6 +29,7 @@ try {
   var asyncpf = require('./inference/asyncpf');
   var pmcmc = require('./inference/pmcmc');
   var smc = require('./inference/smc');
+  var pf = require('./inference/oldParticleFilter');
   var variational = require('./inference/variational');
   var rejection = require('./inference/rejection');
   var incrementalmh = require('./inference/incrementalmh');
@@ -137,7 +138,8 @@ module.exports = function(env) {
   // Inference functions and header utils
   var headerModules = [
     enumerate, asyncpf, mcmc, incrementalmh, pmcmc,
-    smc, variational, rejection, headerUtils
+    smc, variational, rejection, headerUtils,
+    pf
   ];
   headerModules.forEach(function(mod) {
     addExports(mod(env));
