@@ -233,6 +233,7 @@ module.exports = function(env) {
   // LARJ DEBUG
   global.annealingTraces = [];
   global.annealingDiffs = [];
+  var numAnnealingRuns = 0;
 
   function LARJKernel(cont, oldTrace, options) {
     var options = util.mergeDefaults(options, {
@@ -470,6 +471,7 @@ module.exports = function(env) {
             // LARJ DEBUG
             if (this.debug) {
               console.log('-------------------------------------------------------------------------');
+              console.log('Run ' + numAnnealingRuns); numAnnealingRuns++;
               console.log('accept:', accept);
               console.log('dims:', this.oldTrace.length, newTrace.length);
               console.log('final accept lp:', acceptLogProb);
