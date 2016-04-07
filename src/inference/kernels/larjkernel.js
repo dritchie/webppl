@@ -419,7 +419,10 @@ module.exports = function(env) {
 
           function(i, k) {
             // console.log('----------------------------');
-            lerpTrace.alpha = i / (this.tempIntervals - 1);
+            var t = i / (this.tempIntervals - 1);
+            lerpTrace.alpha = t;
+            // var base = 10;
+            // lerpTrace.alpha = (Math.pow(base, t) - 1) / (base - 1);
             annealingLpRatio += ad.untapify(lerpTrace.score);
 
             // LARJ DEBUG
