@@ -14,6 +14,7 @@ module.exports = function(env) {
   function MCMC(s, k, a, wpplFn, options) {
     var options = util.mergeDefaults(options, {
       samples: 100,
+      maxTime: Infinity,
       kernel: 'MH',
       lag: 0,
       burn: 0,
@@ -51,7 +52,6 @@ module.exports = function(env) {
       var kernel = kernels.sequence(options.kernel, callback);
       var burnkernel = kernels.sequence(options.burnkernel, callback);
       var chain = kernels.sequence(
-          // kernels.repeat(options.burn, kernel),
           kernels.repeat(options.burn, burnkernel),
           kernels.repeat(options.samples,
               kernels.sequence(
@@ -67,10 +67,15 @@ module.exports = function(env) {
     };
 
     function makeExtractValue(fn) {
-      return kernels.tap(function(trace) {
+      return function(k, trace) {
         var time = present() - initialTime;
         fn(trace.value, trace.score, time);
-      });
+        if (time > options.maxTime) {
+          return finish(trace);
+        } else {
+          return k(trace);
+        }
+      };
     }
 
     return initialize();
