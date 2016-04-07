@@ -5,15 +5,18 @@ var util = require('../util');
 var ad = require('../ad');
 var Histogram = require('./histogram');
 
-var MAP = function(retainSamples) {
+var MAP = function(retainSamples, adRequired) {
   this.max = { value: undefined, score: -Infinity };
   this.samples = [];
   this.retainSamples = retainSamples;
+  this.adRequired = adRequired;
 };
 
 MAP.prototype.add = function(value, score, time) {
-  var value = ad.deepUntapify(value);
-  var score = ad.untapify(score);
+  if (this.adRequired) {
+    value = ad.deepUntapify(value);
+    score = ad.untapify(score);
+  }
   if (this.retainSamples) {
     this.samples.push({ value: value, score: score, time: time });
   }

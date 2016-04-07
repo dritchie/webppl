@@ -28,8 +28,10 @@ module.exports = function(env) {
         options.callbacks;
     _.invoke(callbacks, 'setup', numIters(options));
 
+    var adRequired = options.kernel.adRequired || options.burnkernel.adRequired;
+
     var aggregator = (options.justSample || options.onlyMAP) ?
-        new MAP(options.justSample) :
+        new MAP(options.justSample, adRequired) :
         new Histogram();
 
     var initialize, run, finish;
@@ -39,7 +41,7 @@ module.exports = function(env) {
     initialize = function() {
       initialTime = present();
       _.invoke(callbacks, 'initialize');
-      return Initialize(run, wpplFn, s, env.exit, a, { ad: options.burnkernel.adRequired || options.kernel.adRequired });
+      return Initialize(run, wpplFn, s, env.exit, a, { ad: adRequired });
     };
 
     run = function(initialTrace) {

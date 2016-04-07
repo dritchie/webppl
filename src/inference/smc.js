@@ -7,6 +7,7 @@ var Trace = require('../trace');
 
 var assert = require('assert');
 var Histogram = require('../aggregation/histogram');
+var MAP = require('../aggregation/map');
 var ad = require('../ad');
 
 module.exports = function(env) {
@@ -261,7 +262,7 @@ module.exports = function(env) {
     assert.strictEqual(this.completeParticles.length, this.numParticles);
 
     var aggregator = (this.justSample || this.onlyMAP) ?
-        new MAP(this.justSample) :
+        new MAP(this.justSample, this.adRequired) :
         new Histogram();
     var logAvgW = _.first(this.completeParticles).logWeight;
 
@@ -276,7 +277,7 @@ module.exports = function(env) {
                     kernels.tap(function(trace) { aggregator.add(trace.value, trace.score); })));
             return chain(k, particle.trace);
           } else {
-            aggregator.add(particle.trace.value, particle.trace.value);
+            aggregator.add(particle.trace.value, particle.trace.score);
             return k();
           }
         }.bind(this),
