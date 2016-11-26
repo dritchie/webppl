@@ -1376,6 +1376,34 @@ var MAP = makeDistributionType({
   }
 });
 
+var GaussianMixture = makeDistributionType({
+  name: 'GaussianMixture',
+  desc: 'Mixture of Gaussian distributions',
+  params: [{name: 'weights', desc: 'mixture weights'},
+           {name: 'params', desc: 'list of {mu:, sigma:} params objects'}],
+  mixins: [continuousSupport],
+  constructor: function() {
+    assert(this.params.weights.length === this.params.params.length,
+      'Must have as many mixture weights as params objects');
+  },
+  sample: function() {
+    var i = discreteSample(this.params.weights);
+    var prms = this.params.params[i];
+    return gaussianSample(prms.mu, prms.sigma);
+  },
+  score: function(x) {
+    var ws = this.params.weights;
+    var wsum = util.sum(ws);
+    var weightedScores = [];
+    for (var i = 0; i < ws.length; i++) {
+      var prms = this.params.params[i];
+      var ls = Math.log(ws[i]/wsum) + gaussianScore(prms.mu, prms.sigma, x);
+      weightedScores.push(ls);
+    }
+    return util.logsumexp(weightedScores);
+  }
+});
+
 
 var Categorical = makeDistributionType({
   name: 'Categorical',
@@ -1463,6 +1491,7 @@ var distributions = {
   Dirichlet: Dirichlet,
   Marginal: Marginal,
   MAP: MAP,
+  GaussianMixture: GaussianMixture,
   Categorical: Categorical,
   Delta: Delta
 };
