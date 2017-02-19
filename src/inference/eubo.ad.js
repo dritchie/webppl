@@ -95,9 +95,11 @@ module.exports = function(env) {
       this.paramsSeen = {};
       this.logq = 0;
 
+      this.additionalObj = 0;
+
       return this.wpplFn(_.clone(this.s), function() {
 
-        var objective = -this.logq;
+        var objective = this.additionalObj - this.logq;
         objective.backprop();
 
         var grads = _.mapValues(this.paramsSeen, function(params) {
@@ -139,6 +141,11 @@ module.exports = function(env) {
 
     factor: function(s, k, a, score) {
       return k(s);
+    },
+
+    extendObjective: function(term) {
+      'use ad';
+      this.additionalObj += term;
     },
 
     incrementalize: env.defaultCoroutine.incrementalize,

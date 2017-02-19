@@ -20,6 +20,9 @@ var sampleNotAllowed = notAllowed('sample');
 var factorNotAllowed = notAllowed('factor');
 
 function guideCoroutine(env) {
+  var extendObjective = env.coroutine.extendObjective ?
+      env.coroutine.extendObjective.bind(env.coroutine) :
+      undefined;
   return {
     sample: sampleNotAllowed,
     factor: factorNotAllowed,
@@ -30,6 +33,7 @@ function guideCoroutine(env) {
     // Use paramsSeen of the current coroutine so that params are
     // tracked correctly.
     paramsSeen: env.coroutine.paramsSeen,
+    extendObjective: extendObjective,
     // A flag used when creating parameters to check whether we're in
     // a guide thunk. Note that this does the right thing if Infer is
     // used within a guide. This can be checked from a webppl program

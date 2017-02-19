@@ -124,6 +124,8 @@ module.exports = function(env) {
     // Compute a single sample estimate of the gradient.
 
     estimateGradient: function(cont) {
+      'use ad';
+
       // paramsSeen tracks the AD nodes of all parameters seen during
       // a single execution. These are the parameters for which
       // gradients will be computed.
@@ -137,6 +139,8 @@ module.exports = function(env) {
       this.prevNode = root; // prevNode becomes the parent of the next node.
       this.nodes.push(root);
 
+      this.additionalObj = 0;
+
       return this.wpplFn(_.clone(this.s), function() {
 
         graph.propagateWeights(this.nodes);
@@ -149,9 +153,10 @@ module.exports = function(env) {
         }
 
         var ret = this.buildObjective();
+        var objective = ret.objective + this.additionalObj;
 
-        if (ad.isLifted(ret.objective)) { // Handle programs with zero random choices.
-          ret.objective.backprop();
+        if (ad.isLifted(objective)) { // Handle programs with zero random choices.
+          objective.backprop();
         }
 
         var grads = _.mapValues(this.paramsSeen, function(params) {
@@ -371,6 +376,11 @@ module.exports = function(env) {
         this.prevNode = joinNode;
         this.nodes.push(joinNode);
       }
+    },
+
+    extendObjective: function(term) {
+      'use ad';
+      this.additionalObj += term;
     },
 
     incrementalize: env.defaultCoroutine.incrementalize,

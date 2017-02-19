@@ -165,6 +165,18 @@ module.exports = function(env) {
     }
   }
 
+  // All gradient estimators are expected to allow the optimization
+  // objective to be extended with additional terms via this method.
+  // These additional terms extend the objective through which we
+  // backprop, but they are not included in the value of the objective
+  // reported to the user.
+  function extendObjective(s, k, a, term) {
+    if (env.coroutine.extendObjective) {
+      env.coroutine.extendObjective(term);
+    }
+    return k(s);
+  }
+
   return {
     display: display,
     cache: cache,
@@ -174,7 +186,8 @@ module.exports = function(env) {
     zeros: zeros,
     ones: ones,
     mapData: mapData,
-    guide: guide
+    guide: guide,
+    extendObjective: extendObjective
   };
 
 };
