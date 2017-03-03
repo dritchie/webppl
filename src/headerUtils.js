@@ -54,6 +54,31 @@ module.exports = function(env) {
     return wpplFn.apply(global, [s, k, a].concat(args));
   }
 
+  function notAllowed(fn, name) {
+    return function() {
+      throw new Error(fn + ' is not allowed in ' + name + '.');
+    };
+  }
+
+  function makeDeterministicCoroutine(name) {
+    return {
+      sample: notAllowed('sample', name),
+      factor: notAllowed('factor', name),
+      incrementalize: env.defaultCoroutine.incrementalize
+    };
+  }
+
+  // Applies a deterministic function. Attempts by wpplFn to call
+  // sample or factor generate an error.
+  function applyd(s, k, a, wpplFn, args, name) {
+    var coroutine = env.coroutine;
+    env.coroutine = makeDeterministicCoroutine(name);
+    return apply(s, function(s, val) {
+      env.coroutine = coroutine;
+      return k(s, val);
+    }, a, wpplFn, args);
+  }
+
   // Annotating a function object with its lexical id and
   //    a list of its free variable values.
   var __uniqueid = 0;
@@ -88,10 +113,20 @@ module.exports = function(env) {
   // one or more of the following methods:
 
   // mapDataFetch: Called when mapData is entered, providing an
-  // opportunity to perform book-keeping etc. When sub-sampling data
-  // this method should return an array of indices indicating the data
-  // to be mapped over. Alternatively, null can be returned to
-  // indicate that all data should be used.
+  // opportunity to perform book-keeping etc. The method should return
+  // an object with data, ix and (optional) address properties.
+
+  //   data: The array that will be mapped over.
+
+  //   ix: An array of integers of the same length as data, where each
+  //   entry indicates the position at which the corresponding entry
+  //   in data can be found in the original data array. This is used
+  //   to ensure that corresponding data items and stack addresses are
+  //   used when applying the observation function. For convenience,
+  //   null can be returned as a short hand for _.range(data.length).
+
+  //   address: When present, mapData behaves as though it was called
+  //   from this address.
 
   // mapDataEnter/mapDataLeave: Called before/after every application
   // of the observation function.
@@ -112,24 +147,27 @@ module.exports = function(env) {
       throw new Error('mapData: No data given.');
     }
 
-    var batchSize = opts.batchSize !== undefined ? opts.batchSize : data.length;
-    if (batchSize < 0 || batchSize > data.length) {
-      throw new Error('mapData: Invalid batchSize.');
-    }
+    var ret = env.coroutine.mapDataFetch ?
+        env.coroutine.mapDataFetch(data, opts, a) :
+        {data: data, ix: null};
 
-    var ix = env.coroutine.mapDataFetch ?
-        env.coroutine.mapDataFetch(data, batchSize, a) :
-        null;
+    var ix = ret.ix;
+    var finalData = ret.data;
+    var address = ret.address || a;
 
-    assert.ok(ix === null || _.isArray(ix));
-    var doReturn = ix === null; // We return undefined when sub-sampling data.
+    assert.ok(ix === null ||
+              (_.isArray(ix) && (ix.length === finalData.length)),
+              'Unexpected value returned by mapDataFetch.');
+
+    // We return undefined when sub-sampling data etc.
+    var doReturn = finalData === data;
 
     return cpsMapData(s, function(s, v) {
       if (env.coroutine.mapDataFinal) {
         env.coroutine.mapDataFinal(a);
       }
       return k(s, doReturn ? v : undefined);
-    }, a, data, ix, obsFn);
+    }, address, finalData, ix, obsFn);
   }
 
   function cpsMapData(s, k, a, data, indices, f, acc, i) {
@@ -151,7 +189,7 @@ module.exports = function(env) {
         return function() {
           return cpsMapData(s, k, a, data, indices, f, acc.concat([v]), i + 1);
         };
-      }, a.concat('_$$' + ix), data[ix], ix);
+      }, a.concat('_$$' + ix), data[i], ix);
     }
   }
 
@@ -181,6 +219,7 @@ module.exports = function(env) {
     display: display,
     cache: cache,
     apply: apply,
+    applyd: applyd,
     _Fn: _Fn,
     _addr: _addr,
     zeros: zeros,

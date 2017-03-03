@@ -308,7 +308,12 @@ module.exports = function(env) {
       return k(s);
     },
 
-    mapDataFetch: function(data, batchSize, address) {
+    mapDataFetch: function(data, opts, address) {
+
+      var batchSize = opts.batchSize !== undefined ? opts.batchSize : data.length;
+      if (batchSize < 0 || batchSize > data.length) {
+        throw new Error('ELBO: Invalid batchSize.');
+      }
 
       // Compute batch indices.
 
@@ -328,6 +333,8 @@ module.exports = function(env) {
         // across samples.
         this.mapDataIx[address] = ix;
       }
+
+      var batch = (ix === null) ? data : _.at(data, ix);
 
       if (batchSize > 0) {
         var joinNode = new JoinNode();
@@ -350,7 +357,7 @@ module.exports = function(env) {
         this.mapDataStack.push(null);
       }
 
-      return ix;
+      return {data: batch, ix: ix};
     },
 
     mapDataEnter: function() {
