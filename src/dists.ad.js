@@ -1264,6 +1264,85 @@ var Dirichlet = makeDistributionType({
 });
 
 
+var ContinuousMixture = makeDistributionType({
+  name: 'ContinuousMixture',
+  desc: 'Mixture of other continuous distributions',
+  params: [{name: 'weights', desc: 'mixture weights (tensor)'},
+           {name: 'dists', desc: 'other distribution objects'}],
+  mixins: [continuousSupport],
+  constructor: function() {
+    assert(ad.value(this.params.weights).length === this.params.dists.length,
+      'Must have as many mixture weights as mixture component dists');
+    // TODO: Assert something about the dists all being the same type, having
+    //    same support, etc.?
+  },
+  sample: function() {
+    var i = discreteSample(this.params.weights);
+    var dist = this.params.dists[i];
+    return dist.sample();
+  },
+  score: function(x) {
+    'use ad';
+    // Compute normalized log weights
+    var ws = this.params.weights;
+    var wsum = ad.tensor.sumreduce(ws);
+    var logWeights = ad.tensor.log(ad.tensor.div(ws, wsum));
+    // Get scores for each component
+    var scores = ad.tensor.fromScalars(this.params.dists.forEach(function(dist) {
+      return dist.score(x);
+    }));
+    // Return logsumexp of weighted scores
+    // TODO: Should we write a custom AD op for this that uses the underflow-guard trick
+    //    in util.logsumexp?
+    var weightedScores = ad.tensor.add(logWeights, scores);
+    return Math.log(ad.tensor.sumreduce(ad.tensor.exp(weightedScores)));
+  }
+})
+
+
+// // Commenting this out in favor using ContinuousMixtureDistribution, above
+// var GaussianMixture = makeDistributionType({
+//   name: 'GaussianMixture',
+//   desc: 'Mixture of Gaussian distributions',
+//   params: [{name: 'weights', desc: 'mixture weights (tensor)'},
+//            {name: 'mus', desc: 'mixture means (tensor)'},
+//            {name: 'sigmas', desc: 'mixture std devs (tensor)'}],
+//   mixins: [continuousSupport],
+//   constructor: function() {
+//     assert(ad.value(this.params.weights).length === ad.value(this.params.mus).length,
+//       'Must have as many mixture weights as mus');
+//     assert(ad.value(this.params.weights).length === ad.value(this.params.sigmas).length,
+//       'Must have as many mixture weights as sigmas');
+//   },
+//   sample: function() {
+//     var i = discreteSample(this.params.weights);
+//     var mu = ad.tensor.get(this.params.mus, i);
+//     var sigma = ad.tensor.get(this.params.sigmas, i);
+//     return gaussianSample(mu, sigma);
+//   },
+//   score: function(x) {
+//     'use ad';
+//     // Compute normalized log weights
+//     var ws = this.params.weights;
+//     var wsum = ad.tensor.sumreduce(ws);
+//     var logWeights = ad.tensor.log(ad.tensor.div(ws, wsum));
+//     // Turn the input x into a tensor by replicating it
+//     var n = ad.value(ws).length;
+//     var arr = []; for (var i = 0; i < n; i++) { arr[i] = x; }
+//     var xt = ad.tensor.fromScalars(arr);
+//     // Get gaussian scores for each component
+//     var scores = diagCovGaussianScore(this.params.mus, this.params.sigmas, xt);
+//     // Return logsumexp of weighted scores
+//     // TODO: Should we write a custom AD op for this that uses the underflow-guard trick
+//     //    in util.logsumexp?
+//     var weightedScores = ad.tensor.add(logWeights, scores);
+//     return Math.log(ad.tensor.sumreduce(ad.tensor.exp(weightedScores)));
+//   }
+// });
+
+
+
+
 function discreteSample(theta) {
   var thetaSum = util.sum(theta);
   var x = util.random() * thetaSum;
@@ -1493,7 +1572,8 @@ var distributions = {
   Marginal: Marginal,
   SampleBasedMarginal: SampleBasedMarginal,
   Categorical: Categorical,
-  Delta: Delta
+  Delta: Delta,
+  ContinuousMixture: ContinuousMixture
 };
 
 module.exports = _.assign({
