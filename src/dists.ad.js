@@ -805,6 +805,81 @@ var Discrete = makeDistributionType({
 });
 
 
+function tensorUnitGumbelSample(n) {
+  var x = new Tensor([n, 1]);
+  while (n--) {
+    x.data[n] = -Math.log(-Math.log(util.random()));
+  }
+  return x;
+}
+
+// Only intended for use as a guide distribution with GumbelSoftmax
+var TensorUnitGumbel = makeDistributionType({
+  name: 'TensorUnitGumbel',
+  desc: 'Distribution over a tensor of independent Gumbel(0, 1) variables.',
+  params: [
+    {name: 'n', desc: 'length of tensor', type: types.positiveInt}
+  ],
+  mixins: [continuousSupport],
+  sample: function() {
+    var n = this.params.n;
+    return tensorUnitGumbelSample(n);
+  },
+  score: function(x) {
+    throw new Error('TensorUnitGumbel only supports sampling (for guide reparameterization)');
+  }
+});
+
+function gumbelSoftmaxTransform(gs, ps, temp) {
+  var logps = ad.tensor.log(ps);
+  var logits = ad.tensor.div(ad.tensor.add(logps, gs), temp);
+  return ad.tensor.softmax(logits);
+}
+
+function gumbelSoftmaxSample(ps, temp) {
+  var n = ps.length;
+  var gs = tensorUnitGumbelSample(n);
+  return gumbelSoftmaxTransform(gs, ps, temp);
+}
+
+function gumbelSoftmaxScore(x, ps, temp) {
+  'use ad';
+  var k = ad.value(ps).length;
+  var sumterm = ad.tensor.sumreduce(ad.tensor.div(ps, ad.tensor.pow(x, temp)));
+  var prodterm = ad.tensor.sumreduce(ad.tensor.sub(ad.tensor.log(ps), ad.tensor.mul(ad.tensor.log(x), temp + 1)));
+  return ad.scalar.logGamma(k) + (k-1) * Math.log(temp) - k * Math.log(sumterm) + prodterm;
+}
+
+var GumbelSoftmax = makeDistributionType({
+  name: 'GumbelSoftmax',
+  desc: 'Gumbel-softmax distribution over the unit simplex',
+  params: [
+    {name: 'ps', desc: 'probabilities (can be unnormalized)', type: types.nonNegativeVector},
+    {name: 'temp', desc: 'softmax temperature value', type: types.positiveReal}
+  ],
+  mixins: [continuousSupport],
+  sample: function() {
+    var ps = ad.value(this.params.ps);
+    var temp = ad.value(this.params.temp);
+    return gumbelSoftmaxSample(ps, temp);
+  },
+  score: function(x) {
+    var ps = this.params.ps;
+    var temp = this.params.temp;
+    return gumbelSoftmaxScore(x, ps, temp);
+  },
+  base: function() {
+    var n = ad.value(this.params.ps).length;
+    return new TensorUnitGumbel({n: n});
+  },
+  transform: function(x) {
+    var ps = this.params.ps;
+    var temp = this.params.temp;
+    return gumbelSoftmaxTransform(x, ps, temp);
+  }
+})
+
+
 // an implementation of Marsaglia & Tang, 2000:
 // A Simple Method for Generating Gamma Variables
 function gammaSample(shape, scale) {
@@ -1562,6 +1637,7 @@ var distributions = {
   IspNormal: IspNormal,
   Cauchy: Cauchy,
   Discrete: Discrete,
+  GumbelSoftmax: GumbelSoftmax,
   Gamma: Gamma,
   Exponential: Exponential,
   Beta: Beta,
