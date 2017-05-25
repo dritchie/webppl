@@ -116,7 +116,7 @@ module.exports = function(env) {
         // Loop body.
         function(i, next) {
 
-          return estimator(i, function(gradObj, objective) {
+          return estimator(i, options.steps, function(gradObj, objective) {
             if (options.checkGradients) {
               checkGradients(gradObj);
             }

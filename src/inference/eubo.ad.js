@@ -23,7 +23,7 @@ var guide = require('../guide');
 
 module.exports = function(env) {
 
-  function EUBO(wpplFn, s, a, options, state, step, cont) {
+  function EUBO(wpplFn, s, a, options, state, step, nSteps, cont) {
     this.opts = util.mergeDefaults(options, {
       batchSize: 1
     });

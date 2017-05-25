@@ -17,7 +17,7 @@ var JoinNode = graph.JoinNode;
 
 module.exports = function(env) {
 
-  function ELBO(wpplFn, s, a, options, state, step, cont) {
+  function ELBO(wpplFn, s, a, options, state, step, nSteps, cont) {
     this.opts = util.mergeDefaults(options, {
       samples: 1,
       avgBaselines: true,
@@ -33,6 +33,7 @@ module.exports = function(env) {
     });
 
     this.step = step;
+    this.nSteps = nSteps;
     this.state = state;
     this.cont = cont;
 
@@ -141,7 +142,11 @@ module.exports = function(env) {
 
       this.additionalObj = 0;
 
-      return this.wpplFn(_.clone(this.s), function() {
+      var initStore = _.assign(_.clone(this.s), {
+        __optimize_step: this.step,
+        __optimize_nSteps: this.nSteps
+      });
+      return this.wpplFn(initStore, function() {
 
         graph.propagateWeights(this.nodes);
 

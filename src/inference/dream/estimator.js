@@ -45,7 +45,7 @@ module.exports = function(env) {
   var dreamSample = require('./sample')(env).dreamSample;
   var dreamGradients = require('./gradients')(env);
 
-  return function(wpplFn, s, a, options, state, step, cont) {
+  return function(wpplFn, s, a, options, state, step, nSteps, cont) {
     var opts = util.mergeDefaults(options, {
       samples: 1
     });
